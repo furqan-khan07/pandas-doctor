@@ -9,6 +9,8 @@ becomes float when the frame also has a float column), so the rewrite can change
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import libcst as cst
 
 from pandas_doctor.static.analysis import (
@@ -79,16 +81,66 @@ def _p(t: Translation) -> str:
 
 
 class LoopShape:
-    """Recognises the loop bodies that have a known column-wise form."""
+    """Recognises the loop bodies that have a known column-wise form.
 
-    def __init__(self, frame: str, idx: str | None, row: str, blocked: frozenset[str]) -> None:
+    The static rule uses the plainest rewrite. `pandas-doctor run` builds the same shape
+    in a few variants and keeps the first one that checks out as identical:
+
+    * `column` renders a column reference, e.g. with `.astype(...)` to match the dtype
+      iterrows gives each row;
+    * `elements="numpy"` keeps numpy scalars in lists (iterrows yields numpy scalars,
+      `.tolist()` yields Python ones);
+    * `total="exact"` sums in the same left-to-right order as the loop, so the result is
+      bit-for-bit the same instead of equal up to rounding.
+
+    After `statement()` returns, `outputs` names the variables the rewrite assigns or
+    changes and `uses_numpy` says whether it needs `np`.
+    """
+
+    def __init__(
+        self,
+        frame: str,
+        idx: str | None,
+        row: str,
+        blocked: frozenset[str],
+        *,
+        column: Callable[[str], str] | None = None,
+        elements: str = "tolist",
+        total: str = "sum",
+    ) -> None:
         self.frame = frame
         self.idx = idx
         self.row = row
         self.blocked = blocked
+        self.column = column
+        self.elements = elements
+        self.total = total
+        self.outputs: list[str] = []
+        self.uses_numpy = False
 
     def tr(self, expr: cst.BaseExpression) -> Translation:
-        return translate(expr, self.row, self.frame, blocked=self.blocked)
+        t = translate(expr, self.row, self.frame, blocked=self.blocked, column=self.column)
+        self.uses_numpy |= t.uses_numpy
+        return t
+
+    def _extend(self, acc: str, value: Translation, mask: str = "") -> str:
+        self.outputs = [acc]
+        if self.elements == "numpy":
+            self.uses_numpy = True
+            inner = f"{_p(value)}{mask}" if mask else value.code
+            return f"{acc}.extend(np.asarray({inner}))"
+        return f"{acc}.extend({_p(value)}{mask}.tolist())"
+
+    def _total(self, acc: str, add: bool, value: Translation, mask: str = "") -> str:
+        self.outputs = [acc]
+        if self.total == "exact":
+            self.uses_numpy = True
+            ufunc = "add" if add else "subtract"
+            inner = f"{_p(value)}{mask}" if mask else value.code
+            return (
+                f"{acc} = np.{ufunc}.accumulate(np.concatenate(([{acc}], np.asarray({inner}))))[-1]"
+            )
+        return f"{acc} {'+=' if add else '-='} {_p(value)}{mask}.sum()"
 
     def cell_target(self, target: cst.BaseExpression) -> str | None:
         """`df.at[i, "col"]` or `df.loc[i, "col"]` on the frame being looped -> `"col"`."""
@@ -130,19 +182,18 @@ class LoopShape:
         acc = self._append_target(small)
         if acc is not None:
             assert isinstance(small, cst.Expr) and isinstance(small.value, cst.Call)
-            value = self.tr(small.value.args[0].value)
-            return f"{acc}.extend({_p(value)}.tolist())"
+            return self._extend(acc, self.tr(small.value.args[0].value))
         if isinstance(small, cst.AugAssign) and isinstance(small.target, cst.Name):
             if isinstance(small.operator, (cst.AddAssign, cst.SubtractAssign)):
                 if small.target.value == self.row or small.target.value == self.idx:
                     return None
-                value = self.tr(small.value)
-                op = "+=" if isinstance(small.operator, cst.AddAssign) else "-="
-                return f"{small.target.value} {op} {_p(value)}.sum()"
+                add = isinstance(small.operator, cst.AddAssign)
+                return self._total(small.target.value, add, self.tr(small.value))
             return None
         if isinstance(small, cst.Assign) and len(small.targets) == 1:
             column = self.cell_target(small.targets[0].target)
             if column is not None:
+                self.outputs = [self.frame]
                 return f"{self.frame}[{column}] = {self.value_code(small.value)}"
         return None
 
@@ -171,26 +222,28 @@ class LoopShape:
         if len(smalls) != 1:
             return None
         small = smalls[0]
+        mask = f"[{cond.code}]"
         if stmt.orelse is None:
             acc = self._append_target(small)
             if acc is not None:
                 assert isinstance(small, cst.Expr) and isinstance(small.value, cst.Call)
-                value = self.tr(small.value.args[0].value)
-                return f"{acc}.extend({_p(value)}[{cond.code}].tolist())"
+                return self._extend(acc, self.tr(small.value.args[0].value), mask)
             if (
                 isinstance(small, cst.AugAssign)
                 and isinstance(small.target, cst.Name)
                 and isinstance(small.operator, cst.AddAssign)
+                and small.target.value not in {self.row, self.idx}
             ):
                 if isinstance(small.value, cst.Integer):
+                    self.outputs = [small.target.value]
                     count = f"int(({cond.code}).sum())"
                     k = code(small.value)
                     return f"{small.target.value} += {count if k == '1' else f'{k} * {count}'}"
-                value = self.tr(small.value)
-                return f"{small.target.value} += {_p(value)}[{cond.code}].sum()"
+                return self._total(small.target.value, True, self.tr(small.value), mask)
             if isinstance(small, cst.Assign) and len(small.targets) == 1:
                 column = self.cell_target(small.targets[0].target)
                 if column is not None:
+                    self.outputs = [self.frame]
                     return (
                         f"{self.frame}.loc[{cond.code}, {column}] = {self.value_code(small.value)}"
                     )
@@ -213,6 +266,8 @@ class LoopShape:
         col_b = self.cell_target(b.targets[0].target)
         if col_a is None or col_a != col_b:
             return None
+        self.outputs = [self.frame]
+        self.uses_numpy = True
         return (
             f"{self.frame}[{col_a}] = np.where({cond.code}, "
             f"{self.value_code(a.value)}, {self.value_code(b.value)})"

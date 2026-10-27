@@ -34,6 +34,8 @@ class Fix:
     description: str
     safe: bool = True
     caveat: str | None = None
+    # Facts the runtime needs to verify this rewrite (e.g. which variable grows).
+    meta: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass

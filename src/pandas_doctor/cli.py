@@ -59,6 +59,96 @@ def _cmd_rules(args: argparse.Namespace) -> int:
     return EXIT_CLEAN
 
 
+def _cmd_run(args: argparse.Namespace) -> int:
+    import difflib
+    import json
+
+    from pandas_doctor.runtime import run_script
+    from pandas_doctor.runtime.report import report_dict, write_report
+
+    script = Path(args.script)
+    if not script.is_file():
+        print(f"pandas-doctor: no such script: {script}", file=sys.stderr)
+        return EXIT_ERROR
+    accept = args.rtol is not None
+    outcome = run_script(
+        script,
+        list(args.args),
+        rtol=args.rtol if accept else 1e-9,
+        accept_tolerance=accept,
+        budget=args.budget,
+    )
+    write_report(outcome.doctor, str(script), outcome.source.splitlines())
+    if args.json:
+        Path(args.json).write_text(
+            json.dumps(report_dict(outcome.doctor, str(script)), indent=2) + "\n"
+        )
+    if args.diff or args.fix:
+        new_source, skipped = outcome.rewritten()
+        for note in skipped:
+            print(f"not rewritten: {note}", file=sys.stderr)
+        if new_source != outcome.source:
+            if args.diff:
+                sys.stdout.write(
+                    "".join(
+                        difflib.unified_diff(
+                            outcome.source.splitlines(keepends=True),
+                            new_source.splitlines(keepends=True),
+                            fromfile=str(script) if script.is_absolute() else f"a/{script}",
+                            tofile=str(script) if script.is_absolute() else f"b/{script}",
+                        )
+                    )
+                )
+            if args.fix:
+                script.write_text(new_source, encoding="utf-8")
+                print(f"rewrote {script}", file=sys.stderr)
+    return outcome.exit_code
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    import json
+
+    from pandas_doctor.verify.api import verify_code
+
+    def text(inline: str | None, path: str | None) -> str:
+        if inline is not None:
+            return inline
+        if path is not None:
+            return Path(path).read_text(encoding="utf-8")
+        return ""
+
+    original = text(args.original_code, args.original)
+    candidate = text(args.candidate_code, args.candidate)
+    if not original or not candidate:
+        print(
+            "pandas-doctor verify: give the original and the candidate (files or --*-code)",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+    outputs = [o.strip() for o in args.outputs.split(",")] if args.outputs else None
+    result = verify_code(
+        original,
+        candidate,
+        setup=text(args.setup_code, args.setup),
+        outputs=outputs,
+        rtol=args.rtol,
+        trust_setup=args.trust_setup,
+        budget=args.budget,
+    )
+    if args.format == "json":
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(result.describe())
+    if result.refused:
+        return EXIT_ERROR
+    from pandas_doctor.verify.verdict import Identical, WithinTolerance
+
+    ok = isinstance(result.verdict, Identical) or (
+        args.accept_tolerance and isinstance(result.verdict, WithinTolerance)
+    )
+    return EXIT_CLEAN if ok else EXIT_FINDINGS
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pandas-doctor",
@@ -86,6 +176,56 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--exit-zero", action="store_true", help="exit 0 even when issues are found")
     check.add_argument("-v", "--verbose", action="store_true", help="say why a fix wasn't offered")
     check.set_defaults(func=_cmd_check)
+
+    run = sub.add_parser(
+        "run",
+        help="run a script, check rewrites of its slow pandas code on its data, and time them",
+        description=(
+            "Runs the script as `python script args...` would. For each slow pattern it finds, "
+            "it copies the inputs, lets your code run, then runs rewrites on the copies and "
+            "compares the results. Verified means: on this run's data."
+        ),
+    )
+    run.add_argument("--diff", action="store_true", help="print verified rewrites as a patch")
+    run.add_argument("--fix", action="store_true", help="write verified rewrites into the script")
+    run.add_argument(
+        "--rtol",
+        type=float,
+        default=None,
+        help="also accept rewrites whose floats match within this relative tolerance",
+    )
+    run.add_argument("--json", metavar="PATH", help="also write the report as JSON")
+    run.add_argument(
+        "--budget", type=float, default=2.0, help="seconds spent timing each rewrite (default 2)"
+    )
+    run.add_argument("script")
+    run.add_argument("args", nargs=argparse.REMAINDER, help="arguments passed to the script")
+    run.set_defaults(func=_cmd_run)
+
+    verify = sub.add_parser(
+        "verify",
+        help="check that a rewrite gives the same result as the original, and time both",
+    )
+    verify.add_argument("--original", metavar="FILE")
+    verify.add_argument("--candidate", metavar="FILE")
+    verify.add_argument("--setup", metavar="FILE", help="code that builds the inputs")
+    verify.add_argument("--original-code", metavar="CODE")
+    verify.add_argument("--candidate-code", metavar="CODE")
+    verify.add_argument("--setup-code", metavar="CODE")
+    verify.add_argument(
+        "--outputs",
+        help="variables to compare, comma-separated (default: what the original assigns)",
+    )
+    verify.add_argument("--rtol", type=float, default=1e-9)
+    verify.add_argument(
+        "--accept-tolerance", action="store_true", help="exit 0 for 'equal within tolerance' too"
+    )
+    verify.add_argument(
+        "--trust-setup", action="store_true", help="skip the safety check on setup code"
+    )
+    verify.add_argument("--budget", type=float, default=2.0)
+    verify.add_argument("--format", choices=("text", "json"), default="text")
+    verify.set_defaults(func=_cmd_verify)
 
     rules = sub.add_parser("rules", help="list the rules")
     rules.set_defaults(func=_cmd_rules)

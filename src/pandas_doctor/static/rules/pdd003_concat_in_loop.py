@@ -233,6 +233,7 @@ class ConcatInLoop(Rule):
             description=f"collect parts in `{parts}` and concat once after the loop",
             safe=False,
             caveat=CAVEAT,
+            meta=(("target", name), ("callee", code(call.func)), ("kwargs", kwargs)),
         )
 
     def _check_scope(self, loop: cst.For, name: str) -> None:
