@@ -74,5 +74,5 @@ def format_speedup(before: float, after: float) -> str:
         return "n/a"
     ratio = before / after
     if ratio >= 10:
-        return f"{ratio:.0f}x"
+        return f"{ratio:,.0f}x"
     return f"{ratio:.1f}x"

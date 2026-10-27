@@ -137,7 +137,7 @@ def write_report(
     if tolerant:
         summary += f", {tolerant} equal within tolerance"
     print(style.bold(summary + "."), file=stream)
-    if identical or tolerant:
+    if (identical or tolerant) and hint:
         print(style.dim(hint), file=stream)
 
 

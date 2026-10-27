@@ -1,0 +1,23 @@
+name: Add a slow pattern
+description: A slow pandas pattern pandas-doctor should know about
+labels: ["new pattern"]
+body:
+  - type: textarea
+    id: slow
+    attributes:
+      label: Slow version
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: fast
+    attributes:
+      label: Fast version
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: equivalence
+    attributes:
+      label: When are they the same?
+      description: Any dtypes, missing values or edge cases where the results differ. `pandas-doctor verify` can check a pair for you.
