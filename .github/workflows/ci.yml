@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Run the full pandas x Python matrix"
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --python 3.13
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run mypy
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The two ends of what we support, on every push. The full matrix
+        # (manual trigger) adds the versions in between.
+        include:
+          - { python: "3.11", pandas: "2.2.3" }
+          - { python: "3.13", pandas: "3.1.0" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --python ${{ matrix.python }}
+      - run: uv pip install "pandas==${{ matrix.pandas }}"
+      - run: uv run --no-sync python -c "import pandas, sys; print(sys.version, pandas.__version__)"
+      - run: uv run --no-sync pytest
+
+  test-full:
+    if: github.event_name == 'workflow_dispatch' && inputs.full
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+        pandas: ["2.2.3", "2.3.3", "3.0.6", "3.1.0"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --python ${{ matrix.python }}
+      - run: uv pip install "pandas==${{ matrix.pandas }}"
+      - run: uv run --no-sync pytest

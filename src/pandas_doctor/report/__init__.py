@@ -95,7 +95,7 @@ def write_text(
     if fixable:
         extras.append(f"{fixable} fixable with --fix")
     if unsafe:
-        extras.append(f"{unsafe} more with --unsafe-fixes")
+        extras.append(f"{unsafe} fixable with --unsafe-fixes")
     if extras:
         summary += " (" + ", ".join(extras) + ")"
     print(style.bold(summary + "."), file=stream)

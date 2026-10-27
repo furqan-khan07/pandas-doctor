@@ -38,7 +38,7 @@ def test_check_reports_and_exits_1(project: Path, capsys: pytest.CaptureFixture[
     out = capsys.readouterr().out
     assert "PDD001" in out and "PDD003" in out
     assert ".venv" not in out
-    assert "Found 2 issues (1 more with --unsafe-fixes)." in out
+    assert "Found 2 issues (1 fixable with --unsafe-fixes)." in out
 
 
 def test_clean_file_exits_0(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
