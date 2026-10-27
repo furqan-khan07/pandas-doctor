@@ -39,7 +39,7 @@ Two results count as identical only when they have:
 That's stricter than it sounds, and it catches real differences:
 
 - `iterrows` hands you each row as a Series, so an int column turns into floats when the frame also has float columns. The obvious rewrite keeps the ints, and the dtype changes.
-- Collecting `row["x"] * 2` into a list gives numpy floats; the same thing via `.tolist()` gives Python floats.
+- In an all-numeric frame, collecting `row["x"] * 2` into a list gives numpy floats; the same thing via `.tolist()` gives Python floats.
 - Summing in a different order changes the last few bits of a float. pandas-doctor reports that as *equal within tolerance* and shows the largest difference, rather than calling it identical.
 
 When the plain rewrite isn't identical, pandas-doctor tries a few more faithful versions: the row dtype iterrows used, numpy scalars, the same summation order. It keeps the first one that matches exactly. If none does, it tells you why and changes nothing.
