@@ -52,8 +52,23 @@ def sanitize(text: str) -> str | None:
     return "".join(out)
 
 
+def _language(nb: dict[str, Any]) -> str | None:
+    meta = nb.get("metadata") or {}
+    kernel = meta.get("kernelspec") or {}
+    info = meta.get("language_info") or {}
+    lang = kernel.get("language") or info.get("name")
+    return str(lang).lower() if lang else None
+
+
 def read_cells(path: Path) -> tuple[dict[str, Any], list[Cell]]:
-    nb = json.loads(path.read_text(encoding="utf-8"))
+    """The notebook and its Python code cells. Empty files and notebooks for other
+    kernels (R, Julia, ...) have no cells to check."""
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        return {}, []
+    nb = json.loads(text)
+    if _language(nb) not in (None, "python", "python3", "ipython", "ipython3"):
+        return nb, []
     cells: list[Cell] = []
     for i, cell in enumerate(nb.get("cells", []), start=1):
         if cell.get("cell_type") != "code":

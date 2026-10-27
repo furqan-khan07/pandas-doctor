@@ -640,8 +640,8 @@ def find_sites(source: str, path: str = "<string>") -> SiteMap:
     finder = _Finder(wrapper.module)
     wrapper.visit(finder)
 
-    concat_rule = ConcatInLoop(FileContext(path=path, module=wrapper.module))
-    wrapper.visit(concat_rule)
+    concat_rule = ConcatInLoop(FileContext(path=path, module=wrapper.module, wrapper=wrapper))
+    wrapper.visit_batched([concat_rule])
     positions = wrapper.resolve(PositionProvider)
     for finding in concat_rule.findings:
         fix = finding.fix

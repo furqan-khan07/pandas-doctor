@@ -76,3 +76,12 @@ def test_fix_writes_back_clean_cells_only(tmp_path: Path) -> None:
     second = "".join(data["cells"][1]["source"])
     assert "out_parts.append(p)" in first
     assert second == "%time x = 1\n" + loop  # has IPython syntax: untouched
+
+
+def test_empty_and_non_python_notebooks_are_skipped(tmp_path: Path) -> None:
+    (tmp_path / "empty.ipynb").write_text("")
+    r_nb = make_notebook(tmp_path / "r.ipynb", [("code", "for (i in 1:10) print(i)")])
+    data = json.loads(r_nb.read_text())
+    data["metadata"] = {"kernelspec": {"language": "R", "name": "ir"}}
+    r_nb.write_text(json.dumps(data))
+    assert main(["check", str(tmp_path)]) == 0
