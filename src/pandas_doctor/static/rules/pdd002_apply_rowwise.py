@@ -113,6 +113,7 @@ class RowwiseApply(Rule):
     code = "PDD002"
     name = "rowwise-apply"
     summary = "DataFrame.apply(..., axis=1); use column operations"
+    triggers = ("apply",)
 
     def visit_Call(self, node: cst.Call) -> None:
         if not rowwise_apply(node):

@@ -160,6 +160,7 @@ class GroupbyApply(Rule):
     code = "PDD005"
     name = "groupby-apply-agg"
     summary = "groupby().apply(lambda g: g[col].agg()); use the built-in aggregation"
+    triggers = ("groupby",)
 
     def visit_Call(self, node: cst.Call) -> None:
         replacement = groupby_apply_rewrite(node)

@@ -6,10 +6,10 @@ is used somewhere, a false "yes" only costs a fix, while a false "no" could brea
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
+from typing import Any
 
 import libcst as cst
-from libcst.metadata import QualifiedNameProvider
 
 _RENDER = cst.Module(body=[])
 
@@ -59,16 +59,17 @@ def dotted_name(node: cst.BaseExpression) -> str | None:
     return None
 
 
-def resolves_to(visitor: cst.CSTVisitor, node: cst.BaseExpression, target: str) -> bool:
+def resolves_to(
+    qualified_names: Mapping[cst.CSTNode, Any], node: cst.BaseExpression, target: str
+) -> bool:
     """Whether `node` refers to `target` (e.g. "pandas.concat").
 
     Uses libcst's import tracking, and falls back to the usual alias spellings when the
     import isn't in this file (common in notebooks split across cells).
     """
-    try:
-        qualified = visitor.get_metadata(QualifiedNameProvider, node, set())
-    except KeyError:
-        qualified = set()
+    qualified = qualified_names.get(node, set())
+    if callable(qualified):  # libcst stores some metadata as lazily computed values
+        qualified = qualified()
     if qualified:
         return any(q.name == target for q in qualified)
     spelled = dotted_name(node)

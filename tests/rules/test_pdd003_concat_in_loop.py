@@ -68,6 +68,10 @@ class TestDetection:
                 out.append(p)
             """,  # list append is fine
             """
+            for t in range(10):
+                res = res.append(endog.iloc[t : t + 1], refit=False)
+            """,  # statsmodels results.append, found in the corpus
+            """
             def f():
                 out = pd.concat([out, p])
             for p in parts:

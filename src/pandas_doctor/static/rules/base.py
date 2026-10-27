@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import ClassVar
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any, ClassVar
 
 import libcst as cst
 from libcst.metadata import (
+    CodeRange,
+    MetadataWrapper,
     ParentNodeProvider,
     PositionProvider,
     ProviderT,
     QualifiedNameProvider,
-    ScopeProvider,
 )
 
 from pandas_doctor.findings import Finding, Fix, Severity
@@ -19,12 +21,35 @@ from pandas_doctor.findings import Finding, Fix, Severity
 
 @dataclass
 class FileContext:
+    """One file being checked. Metadata is computed lazily, only if a rule asks for it:
+    most files have nothing to report and never need positions or parent links."""
+
     path: str
     module: cst.Module  # the tree the rule visits; fixes must target nodes of this tree
+    wrapper: MetadataWrapper | None = None
+    _cache: dict[Any, Any] = field(default_factory=dict, repr=False)
+
+    def resolve(self, provider: ProviderT) -> Mapping[cst.CSTNode, Any]:
+        if provider not in self._cache:
+            if self.wrapper is None:
+                self.wrapper = MetadataWrapper(self.module, unsafe_skip_copy=True)
+            self._cache[provider] = self.wrapper.resolve(provider)
+        return self._cache[provider]  # type: ignore[no-any-return]
+
+    def position(self, node: cst.CSTNode) -> CodeRange:
+        return self.resolve(PositionProvider)[node]  # type: ignore[no-any-return]
+
+    def qualified_names(self) -> Mapping[cst.CSTNode, Any]:
+        return self.resolve(QualifiedNameProvider)
 
 
-class Rule(cst.CSTVisitor):
-    """One check. Subclasses visit the tree and call `report()`."""
+class Rule(cst.BatchableCSTVisitor):
+    """One check. Subclasses visit the tree and call `report()`.
+
+    All rules run in a single batched traversal. `triggers` lists substrings the source
+    must contain for the rule to be worth running (empty: always run), which lets the
+    engine skip most files without parsing them.
+    """
 
     code: ClassVar[str]
     name: ClassVar[str]
@@ -33,12 +58,7 @@ class Rule(cst.CSTVisitor):
     # "safe" or "unsafe" when some findings come with a static fix (see findings.Fix).
     fix_safety: ClassVar[str | None] = None
 
-    METADATA_DEPENDENCIES: ClassVar[tuple[ProviderT, ...]] = (
-        PositionProvider,
-        QualifiedNameProvider,
-        ScopeProvider,
-        ParentNodeProvider,
-    )
+    triggers: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, ctx: FileContext) -> None:
         super().__init__()
@@ -46,10 +66,7 @@ class Rule(cst.CSTVisitor):
         self.findings: list[Finding] = []
 
     def parent(self, node: cst.CSTNode) -> cst.CSTNode | None:
-        try:
-            return self.get_metadata(ParentNodeProvider, node)
-        except KeyError:
-            return None
+        return self.ctx.resolve(ParentNodeProvider).get(node)
 
     def ancestors(self, node: cst.CSTNode) -> list[cst.CSTNode]:
         out: list[cst.CSTNode] = []
@@ -69,7 +86,7 @@ class Rule(cst.CSTVisitor):
         fix: Fix | None = None,
         fix_skipped: str | None = None,
     ) -> None:
-        pos = self.get_metadata(PositionProvider, node)
+        pos = self.ctx.position(node)
         self.findings.append(
             Finding(
                 code=self.code,

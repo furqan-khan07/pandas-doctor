@@ -115,23 +115,43 @@ def cell_loop_rewrite(node: cst.For) -> tuple[str, list[str]] | None:
     return f"{frame}[{cell[2]}] = {t.code}", [frame]
 
 
-def _writes_cell(node: cst.BaseExpression, var: str) -> bool:
-    """`X.at/.loc/.iat/.iloc[<uses var>, <anything>] = ...` (detection only)."""
+def _writes_cell(node: cst.BaseExpression, var: str) -> str | None:
+    """`X.at/.loc/.iat/.iloc[<uses var>, <anything>] = ...` -> the code of `X`."""
     if not (
         isinstance(node, cst.Subscript)
         and isinstance(node.value, cst.Attribute)
         and node.value.attr.value in _CELL_ACCESSORS
         and len(node.slice) == 2
     ):
-        return False
+        return None
     first = node.slice[0].slice
-    return isinstance(first, cst.Index) and mentions(first.value, var) > 0
+    if isinstance(first, cst.Index) and mentions(first.value, var) > 0:
+        return code(node.value.value)
+    return None
+
+
+def _over_rows_of(it: cst.BaseExpression, frame: str) -> bool:
+    """Whether the loop runs once per row of `frame`: `frame.index`, `range(len(frame))`,
+    `range(a, len(frame))`, `range(frame.shape[0])`. Loops over a handful of model orders
+    or columns aren't the slow pattern, even if they write cells."""
+    if isinstance(it, cst.Attribute) and it.attr.value == "index" and code(it.value) == frame:
+        return True
+    if not (
+        isinstance(it, cst.Call)
+        and isinstance(it.func, cst.Name)
+        and it.func.value == "range"
+        and it.args
+    ):
+        return False
+    stop = code(it.args[1].value if len(it.args) >= 2 else it.args[0].value)
+    return stop in {f"len({frame})", f"len({frame}.index)", f"{frame}.shape[0]"}
 
 
 class CellLoop(Rule):
     code = "PDD007"
     name = "cell-by-cell-loop"
     summary = "df.at/.loc/.iat/.iloc[i, col] = ... inside a loop; assign the whole column"
+    triggers = (".at[", ".loc[", ".iat[", ".iloc[")
 
     def visit_For(self, node: cst.For) -> None:
         if iterrows_frame(node.iter) is not None:
@@ -141,7 +161,8 @@ class CellLoop(Rule):
             return
         var = names[0]
         for n in walk(node.body):
-            if isinstance(n, cst.AssignTarget) and _writes_cell(n.target, var):
+            frame = _writes_cell(n.target, var) if isinstance(n, cst.AssignTarget) else None
+            if frame is not None and _over_rows_of(node.iter, frame):
                 found = cell_loop_rewrite(node)
                 self.report(
                     node,

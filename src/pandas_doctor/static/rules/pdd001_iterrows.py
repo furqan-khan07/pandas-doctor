@@ -278,6 +278,7 @@ class IterrowsLoop(Rule):
     code = "PDD001"
     name = "iterrows-loop"
     summary = "Loop over DataFrame.iterrows(); vectorise it"
+    triggers = ("iterrows",)
 
     def visit_For(self, node: cst.For) -> None:
         frame_node = iterrows_frame(node.iter)

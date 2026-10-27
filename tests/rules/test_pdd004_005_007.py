@@ -22,8 +22,8 @@ class TestPDD004:
             ("df.price.map(lambda v: v * 2)", "df.price * 2"),
             ("s.apply(lambda x: x.upper())", "s.str.upper()"),
             (
-                "s.map(lambda x: 'a' if x > 0 else 'b')",
-                "pd.Series(np.where(s > 0, 'a', 'b'), index=s.index)",
+                "df['x'].map(lambda x: 'a' if x > 0 else 'b')",
+                "pd.Series(np.where(df['x'] > 0, 'a', 'b'), index=df['x'].index)",
             ),
         ],
     )
@@ -42,6 +42,18 @@ class TestPDD004:
             "df['a'].apply(lambda x, k=1: x + k)",
             "df['a'].apply(str.lower)",
             "df['a'].str.apply(lambda x: x)",
+            # false positives the corpus pass found, kept as regressions:
+            "dataset.map(lambda x: x * 2)",  # tf.data
+            "rdd.map(lambda line: line.lower())",  # Spark
+            "df.style.map(lambda v: 'color: red' if v < 0 else '')",  # Styler
+            "df2.style.map(f).map(lambda v: 'x' if v > 0 else None)",
+            "idx.map(lambda x: x.hour)",  # Index has no .dt
+            "df.index.map(lambda x: x + 1)",
+            "frame.map(lambda x: len(str(x)))",  # DataFrame has no .str
+            "s.map(lambda x: x)",  # identity
+            "df['a'].apply(lambda x: x)",
+            "grouped['foo'].apply(lambda x: x * 2)",  # SeriesGroupBy
+            "self.ds.map(lambda x: x * 2)",
         ],
     )
     def test_not_flagged(self, source: str) -> None:
@@ -96,6 +108,27 @@ class TestPDD007:
     def test_positional_writes_are_flagged_without_suggestion(self) -> None:
         assert one("for i in range(len(df)):\n    df.iloc[i, 2] = 0", "PDD007") is None
 
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "for p in range(6):\n    aic.iloc[p, 0] = fit(p)",  # small fixed loop (statsmodels)
+            "for i in range(len(eig)):\n    out.iloc[i, 0] = eig[i]",  # not looping over `out`'s rows
+            "for i in range(5):\n    df.iloc[i, i] = 0",
+        ],
+    )
+    def test_small_or_unrelated_loops_not_flagged(self, source: str) -> None:
+        assert findings(source, "PDD007") == []
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "for i in range(df.shape[0]):\n    df.iat[i, 0] = 1",
+            "for j in range(i + 1, len(peaks)):\n    peaks.loc[j, 'r'] = 1",
+        ],
+    )
+    def test_row_loops_flagged(self, source: str) -> None:
+        assert len(findings(source, "PDD007")) == 1
+
     def test_other_frame_no_suggestion(self) -> None:
         assert one("for i in df.index:\n    df.loc[i, 'c'] = other.loc[i, 'a']", "PDD007") is None
 
@@ -105,6 +138,7 @@ class TestPDD007:
             "for i, r in df.iterrows():\n    df.at[i, 'c'] = 1",  # that's PDD001
             "for i in df.index:\n    x = df.at[i, 'a']",  # reads only
             "for k in keys:\n    df.at[0, k] = 1",  # loop var isn't the row
+            "for i in other.index:\n    df.at[i, 'c'] = 1",  # loops over a different frame
         ],
     )
     def test_not_flagged(self, source: str) -> None:

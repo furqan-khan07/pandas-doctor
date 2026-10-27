@@ -95,7 +95,7 @@ def test_json(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_parse_error_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / "broken.py").write_text("def (:\n")
+    (tmp_path / "broken.py").write_text("def (:\n    df.iterrows()\n")
     assert main(["check", str(tmp_path)]) == 2
     assert "could not parse" in capsys.readouterr().out
 

@@ -8,11 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import libcst as cst
-from libcst.metadata import MetadataWrapper, PositionProvider
 
 from pandas_doctor.config import Config
 from pandas_doctor.findings import Finding, Fix
-from pandas_doctor.static.rules import ALL_RULES, FileContext
+from pandas_doctor.static.rules import ALL_RULES, FileContext, Rule
 
 MAX_FIX_PASSES = 10
 
@@ -26,9 +25,19 @@ class FileResult:
     fixes_applied: int = 0
 
 
+def _active_rules(source: str, config: Config) -> list[type[Rule]]:
+    return [
+        r
+        for r in ALL_RULES
+        if config.enabled(r.code) and (not r.triggers or any(t in source for t in r.triggers))
+    ]
+
+
 def check_source(source: str, path: str = "<string>", config: Config | None = None) -> FileResult:
     """Findings for one file's source. Parse errors come back in `error`, not as exceptions."""
     config = config or Config()
+    if not _active_rules(source, config):
+        return FileResult(path)  # nothing any rule looks for: skip parsing
     try:
         module = cst.parse_module(source)
     except cst.ParserSyntaxError as exc:
@@ -36,20 +45,15 @@ def check_source(source: str, path: str = "<string>", config: Config | None = No
     return FileResult(path, findings=_run_rules(module, path, config)[0])
 
 
-def _run_rules(
-    module: cst.Module, path: str, config: Config
-) -> tuple[list[Finding], MetadataWrapper]:
-    wrapper = MetadataWrapper(module)
-    ctx = FileContext(path=path, module=wrapper.module)
-    findings: list[Finding] = []
-    for rule_cls in ALL_RULES:
-        if not config.enabled(rule_cls.code):
-            continue
-        rule = rule_cls(ctx)
-        wrapper.visit(rule)
-        findings.extend(rule.findings)
+def _run_rules(module: cst.Module, path: str, config: Config) -> tuple[list[Finding], FileContext]:
+    ctx = FileContext(path=path, module=module)
+    rules = [rule_cls(ctx) for rule_cls in _active_rules(module.code, config)]
+    if rules:
+        # no metadata is declared, so this is a plain traversal; rules resolve it lazily
+        cst.visit_batched(module, rules)
+    findings = [f for rule in rules for f in rule.findings]
     findings.sort(key=lambda f: (f.line, f.column, f.code))
-    return findings, wrapper
+    return findings, ctx
 
 
 class _ApplyFixes(cst.CSTTransformer):
@@ -79,25 +83,27 @@ def fix_source(
 ) -> FileResult:
     """Apply every safe fix (and unsafe ones if asked), re-checking after each pass."""
     config = config or Config()
+    if not _active_rules(source, config):
+        return FileResult(path)
     try:
         module = cst.parse_module(source)
     except cst.ParserSyntaxError as exc:
         return FileResult(path, error=f"could not parse: {exc.message} (line {exc.raw_line})")
     applied = 0
     for _ in range(MAX_FIX_PASSES):
-        findings, wrapper = _run_rules(module, path, config)
+        findings, ctx = _run_rules(module, path, config)
         candidates = []
         for f in findings:
             if f.fix is None or not (f.fix.safe or unsafe):
                 continue
-            pos = wrapper.resolve(PositionProvider)[f.fix.target]
+            pos = ctx.position(f.fix.target)
             candidates.append(
                 (f.fix, (pos.start.line, pos.start.column, pos.end.line, pos.end.column))
             )
         if not candidates:
             break
         fixes = _non_overlapping(candidates)
-        new_module = wrapper.module.visit(_ApplyFixes(fixes))
+        new_module = ctx.module.visit(_ApplyFixes(fixes))
         new_code = new_module.code
         compile(new_code, path, "exec")  # a fix must never produce code that doesn't parse
         module = cst.parse_module(new_code)

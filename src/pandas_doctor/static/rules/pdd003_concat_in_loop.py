@@ -36,7 +36,6 @@ different-columns counterexamples as regression tests.
 from __future__ import annotations
 
 import libcst as cst
-from libcst.metadata import PositionProvider
 
 from pandas_doctor.findings import Fix
 from pandas_doctor.static.analysis import (
@@ -51,7 +50,7 @@ from pandas_doctor.static.analysis import (
     unique_name,
     walk,
 )
-from pandas_doctor.static.rules.base import Rule
+from pandas_doctor.static.rules.base import FileContext, Rule
 
 _ALLOWED_KWARGS = {
     "ignore_index": (True, False),
@@ -80,6 +79,14 @@ class _Replace(cst.CSTTransformer):
         return self.new if original_node is self.target else updated_node
 
 
+def _looks_like_frame_append(call: cst.Call) -> bool:
+    """DataFrame.append(other, ignore_index=, verify_integrity=, sort=). Other libraries
+    have `.append` methods with different arguments (statsmodels results take `refit=`)."""
+    positional = [a for a in call.args if a.keyword is None]
+    keywords = {a.keyword.value for a in call.args if a.keyword is not None}
+    return len(positional) == 1 and keywords <= {"ignore_index", "verify_integrity", "sort"}
+
+
 def _objs(call: cst.Call) -> cst.BaseExpression | None:
     if call.args and call.args[0].keyword is None and not call.args[0].star:
         return call.args[0].value
@@ -105,6 +112,42 @@ class ConcatInLoop(Rule):
     name = "concat-in-loop"
     summary = "pd.concat / append growth inside a loop; collect parts and concat once"
     fix_safety = "unsafe"
+    triggers = ("concat", ".append(")
+
+    def __init__(self, ctx: FileContext) -> None:
+        super().__init__(ctx)
+        # innermost enclosing loop, or None at a function/class/lambda boundary
+        self._loops: list[cst.For | cst.While | None] = []
+
+    def visit_For(self, node: cst.For) -> None:
+        self._loops.append(node)
+
+    def leave_For(self, original_node: cst.For) -> None:
+        self._loops.pop()
+
+    def visit_While(self, node: cst.While) -> None:
+        self._loops.append(node)
+
+    def leave_While(self, original_node: cst.While) -> None:
+        self._loops.pop()
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        self._loops.append(None)
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
+        self._loops.pop()
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        self._loops.append(None)
+
+    def leave_ClassDef(self, original_node: cst.ClassDef) -> None:
+        self._loops.pop()
+
+    def visit_Lambda(self, node: cst.Lambda) -> None:
+        self._loops.append(None)
+
+    def leave_Lambda(self, original_node: cst.Lambda) -> None:
+        self._loops.pop()
 
     def visit_Assign(self, node: cst.Assign) -> None:
         if len(node.targets) != 1 or not isinstance(node.targets[0].target, cst.Name):
@@ -121,6 +164,7 @@ class ConcatInLoop(Rule):
             and value.func.attr.value == "append"
             and isinstance(value.func.value, cst.Name)
             and value.func.value.value == name
+            and _looks_like_frame_append(value)
         ):
             self.report(
                 value,
@@ -152,16 +196,15 @@ class ConcatInLoop(Rule):
     # -- detection --------------------------------------------------------------
 
     def _loop(self, node: cst.CSTNode) -> cst.For | cst.While | None:
-        for anc in self.ancestors(node):
-            if isinstance(anc, (cst.For, cst.While)):
-                return anc
-            if isinstance(anc, _SCOPE_BOUNDARY):
-                return None
-        return None
+        return self._loops[-1] if self._loops else None
 
     def _concat_growing(self, node: cst.Assign, name: str) -> cst.Call | None:
         for n in walk(node.value):
-            if isinstance(n, cst.Call) and resolves_to(self, n.func, "pandas.concat"):
+            if (
+                isinstance(n, cst.Call)
+                and code(n.func).endswith("concat")
+                and resolves_to(self.ctx.qualified_names(), n.func, "pandas.concat")
+            ):
                 elements = _first_elements(_objs(n))
                 if elements and any(isinstance(e, cst.Name) and e.value == name for e in elements):
                     return n
@@ -272,12 +315,12 @@ class ConcatInLoop(Rule):
                 )
             return
         # A name assigned from a call earlier in this iteration and untouched after the concat.
-        end = self.get_metadata(PositionProvider, assign).end
+        end = self.ctx.position(assign).end
         concat_at = (end.line, end.column)
         uses: list[tuple[tuple[int, int], cst.Name]] = []
         for n in names_in(loop.body):
             if n.value == pname:
-                pos = self.get_metadata(PositionProvider, n).start
+                pos = self.ctx.position(n).start
                 uses.append(((pos.line, pos.column), n))
         uses.sort(key=lambda item: item[0])
         if not uses:

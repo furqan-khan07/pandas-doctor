@@ -16,6 +16,8 @@ datetime methods that only make sense on single values.
 
 from __future__ import annotations
 
+import re
+
 import libcst as cst
 
 from pandas_doctor.findings import Severity
@@ -40,13 +42,49 @@ def _single_param_lambda(arg: cst.BaseExpression) -> tuple[str, cst.BaseExpressi
     return p.params[0].name.value, arg.body
 
 
+# Attributes that are pandas objects but not a data column (or not pandas at all).
+_NOT_COLUMNS = frozenset(
+    {
+        "index",
+        "columns",
+        "style",
+        "str",
+        "dt",
+        "cat",
+        "sparse",
+        "plot",
+        "T",
+        "values",
+        "array",
+        "axes",
+        "loc",
+        "iloc",
+    }
+)
+# Variables that usually hold groupby/rolling objects, where `.apply` sees a group.
+_GROUPISH = re.compile(r"group|(^|_)gb($|_)|grp|roll|window|resampl|expanding|ewm", re.IGNORECASE)
+
+
 def _is_column(node: cst.BaseExpression) -> bool:
+    """`df["col"]`, `df[0]` or `df.col`: very likely a single pandas column (a Series)."""
     if isinstance(node, cst.Subscript) and len(node.slice) == 1:
         inner = node.slice[0].slice
-        return isinstance(inner, cst.Index) and isinstance(
-            inner.value, (cst.SimpleString, cst.Integer)
+        return (
+            isinstance(inner, cst.Index)
+            and isinstance(inner.value, (cst.SimpleString, cst.Integer))
+            and not _groupish(node.value)
         )
-    return isinstance(node, cst.Attribute) and isinstance(node.value, cst.Name)
+    return (
+        isinstance(node, cst.Attribute)
+        and isinstance(node.value, cst.Name)
+        and node.value.value not in {"self", "cls"}
+        and node.attr.value not in _NOT_COLUMNS
+        and not _groupish(node.value)
+    )
+
+
+def _groupish(node: cst.BaseExpression) -> bool:
+    return isinstance(node, cst.Name) and bool(_GROUPISH.search(node.value))
 
 
 # Methods/fields that exist on single str/Timestamp values but not on Series, so using
@@ -97,12 +135,24 @@ def elementwise_apply(call: cst.Call) -> tuple[cst.BaseExpression, str, cst.Base
     if found is None:
         return None
     param, body = found
+    if isinstance(body, cst.Name) and body.value == param:
+        return None  # `lambda x: x` copies; there's nothing to vectorise
     receiver = call.func.value
-    if _from_grouper(receiver):
+    if _from_grouper(receiver) or _groupish(receiver):
         return None  # each call gets a whole group, not one element
-    if method == "apply" and not (_is_column(receiver) or _uses_scalar_methods(body, param)):
-        return None
-    if isinstance(receiver, cst.Attribute) and receiver.attr.value == "str":
+    if any(
+        isinstance(n, cst.Attribute) and n.attr.value in {"style", "index", "columns"}
+        for n in _walk(receiver)
+    ):
+        return None  # Styler.map, Index.map: not element-wise over a Series
+    if method == "apply":
+        # Series.apply: either clearly a column, or the lambda uses str/datetime methods,
+        # which only work if each call gets a single value (so the receiver is a Series)
+        if not (_is_column(receiver) or _uses_scalar_methods(body, param)):
+            return None
+    elif not _is_column(receiver):
+        # `.map` exists on DataFrames, Index, Styler, tf.data, Spark RDDs...: only trust
+        # it on something that is clearly a pandas column
         return None
     return receiver, param, body
 
@@ -125,6 +175,7 @@ class ElementwiseApply(Rule):
     code = "PDD004"
     name = "elementwise-apply"
     summary = "s.apply/map(lambda x: ...) with a vector equivalent (.str, .dt, arithmetic)"
+    triggers = (".apply(", ".map(", "applymap")
     severity = Severity.WARNING
 
     def visit_Call(self, node: cst.Call) -> None:
