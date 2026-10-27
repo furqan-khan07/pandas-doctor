@@ -20,7 +20,7 @@ import sys
 from typing import Any
 
 from pandas_doctor.runtime import run_cell
-from pandas_doctor.runtime.report import write_report
+from pandas_doctor.runtime.report import write_memory, write_report
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,6 +53,7 @@ def register(ipython: Any) -> None:
             stream=sys.stdout,
             hint="Use `%%doctor --rewrite` to get the verified rewrite as a new cell.",
         )
+        write_memory(outcome.memory, stream=sys.stdout)
         if args.rewrite:
             new_source, skipped = outcome.rewritten()
             for note in skipped:

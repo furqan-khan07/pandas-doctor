@@ -5,11 +5,11 @@ from __future__ import annotations
 import builtins
 import sys
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pandas_doctor.runtime.doctor import Doctor
+from pandas_doctor.runtime.doctor import Doctor, MemoryFinding, category_suggestions
 from pandas_doctor.runtime.instrument import instrument
 from pandas_doctor.runtime.rewrite import apply_rewrites
 from pandas_doctor.runtime.sites import SiteMap, find_sites
@@ -25,6 +25,7 @@ class RunOutcome:
     source: str
     exit_code: int
     error: BaseException | None = None
+    memory: list[MemoryFinding] = field(default_factory=list)
 
     def rewritten(self) -> tuple[str, list[str]]:
         return apply_rewrites(self.sitemap, self.doctor.results.values())
@@ -63,7 +64,8 @@ def run_script(
     finally:
         doctor.mark(None)
         sys.argv, sys.path[:] = old_argv, old_path
-    return RunOutcome(doctor, sitemap, source, exit_code, error)
+    memory = category_suggestions(globs)
+    return RunOutcome(doctor, sitemap, source, exit_code, error, memory)
 
 
 def run_cell(
@@ -80,6 +82,9 @@ def run_cell(
     code = compile(instrument(source, sitemap.sites), "<doctor cell>", "exec")
     namespace["__pdd__"] = doctor
     error = None
+    import ast as _ast
+
+    cell_names = sorted({n.id for n in _ast.walk(_ast.parse(source)) if isinstance(n, _ast.Name)})
     try:
         exec(code, namespace)
     except Exception as exc:
@@ -88,4 +93,5 @@ def run_cell(
         doctor.mark(None)
         for key in [k for k in namespace if k.startswith("__pdd")]:
             del namespace[key]
-    return RunOutcome(doctor, sitemap, source, 1 if error else 0, error)
+    memory = category_suggestions(namespace, cell_names)
+    return RunOutcome(doctor, sitemap, source, 1 if error else 0, error, memory)

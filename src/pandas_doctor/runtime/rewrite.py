@@ -112,6 +112,9 @@ def apply_rewrites(sitemap: SiteMap, results: Iterable[SiteResult]) -> tuple[str
         site = res.site
         if res.chosen is None:
             continue
+        if not res.worth_applying:
+            skipped.append(f"line {site.line}: identical, but not faster on this data")
+            continue
         if site.concat is not None:
             if site.fix is not None and isinstance(site.fix.replacement, cst.FlattenSentinel):
                 replacements[id(site.node)] = site.fix.replacement

@@ -33,6 +33,9 @@ from pandas_doctor.static.rules.base import FileContext
 from pandas_doctor.static.rules.pdd001_iterrows import LoopShape, _p, assigned_names, iterrows_frame
 from pandas_doctor.static.rules.pdd002_apply_rowwise import row_function, rowwise_apply
 from pandas_doctor.static.rules.pdd003_concat_in_loop import ConcatInLoop
+from pandas_doctor.static.rules.pdd004_elementwise_apply import vectorised as vectorised_elementwise
+from pandas_doctor.static.rules.pdd005_groupby_apply import groupby_apply_rewrite
+from pandas_doctor.static.rules.pdd007_cell_loop import cell_loop_rewrite
 from pandas_doctor.static.translate import Translation, Untranslatable, translate
 from pandas_doctor.verify.purity import is_pure
 
@@ -72,6 +75,8 @@ class Site:
     repeatable: bool = False
     concat: ConcatInfo | None = None
     fix: Fix | None = None
+    # runtime-only checks are reported only when they verify and measurably win
+    runtime_only: bool = False
 
 
 @dataclass
@@ -137,6 +142,12 @@ class _Finder(cst.CSTVisitor):
     # -- PDD001: for i, row in df.iterrows(): ... ----------------------------------
 
     def visit_For(self, node: cst.For) -> None:
+        if self._astype_loop(node):
+            return
+        cell = cell_loop_rewrite(node)
+        if cell is not None:
+            self._cell_loop(node, cell[0], cell[1][0])
+            return
         frame_node = iterrows_frame(node.iter)
         if not isinstance(frame_node, cst.Name) or node.orelse is not None:
             return
@@ -219,6 +230,100 @@ class _Finder(cst.CSTVisitor):
             build=build,
         )
 
+    def _astype_loop(self, node: cst.For) -> bool:
+        """PDD006 (runtime only): `for c in cols: df[c] = df[c].astype(T)`."""
+        names = target_names(node.target)
+        stmts = body_statements(node.body)
+        if names is None or len(names) != 1 or len(stmts) != 1 or node.orelse is not None:
+            return False
+        if not isinstance(node.iter, (cst.Name, cst.List, cst.Tuple, cst.Attribute)):
+            return False
+        var = names[0]
+        smalls = small_statements(stmts[0])
+        if len(smalls) != 1 or not isinstance(smalls[0], cst.Assign) or len(smalls[0].targets) != 1:
+            return False
+        assign = smalls[0]
+        target, value = assign.targets[0].target, assign.value
+
+        def frame_col(n: cst.BaseExpression) -> str | None:
+            if (
+                isinstance(n, cst.Subscript)
+                and isinstance(n.value, cst.Name)
+                and len(n.slice) == 1
+                and isinstance(n.slice[0].slice, cst.Index)
+                and isinstance(n.slice[0].slice.value, cst.Name)
+                and n.slice[0].slice.value.value == var
+            ):
+                return n.value.value
+            return None
+
+        frame = frame_col(target)
+        if frame is None or not isinstance(value, cst.Call) or len(value.args) != 1:
+            return False
+        func = value.func
+        if not (
+            isinstance(func, cst.Attribute)
+            and func.attr.value == "astype"
+            and frame_col(func.value) == frame
+        ):
+            return False
+        dtype_arg = value.args[0]
+        if dtype_arg.keyword is not None or dtype_arg.star:
+            return False
+        # the frame must not be a function parameter: the loop changes the caller's frame
+        for anc in self._ancestors(node):
+            if isinstance(anc, cst.FunctionDef) and frame in {
+                p.name.value for p in anc.params.params
+            }:
+                return False
+        cols = code(node.iter)
+        dtype = code(dtype_arg.value)
+        text = f"{frame}[list({cols})] = {frame}.astype({{{var}: {dtype} for {var} in {cols}}})[list({cols})]"
+        self._add(
+            node,
+            "PDD006",
+            "per-column astype loop",
+            inputs=_inputs(node, {var}),
+            outputs=[frame],
+            loop_vars=[var],
+            build=lambda snap, after: [Candidate(text, "one astype call, in place", False)],
+            runtime_only=True,
+        )
+        return True
+
+    def _ancestors(self, node: cst.CSTNode) -> list[cst.CSTNode]:
+        out: list[cst.CSTNode] = []
+        current = self.get_metadata(ParentNodeProvider, node, None)
+        while current is not None:
+            out.append(current)
+            current = self.get_metadata(ParentNodeProvider, current, None)
+        return out
+
+    def _cell_loop(self, node: cst.For, text: str, frame: str) -> None:
+        """PDD007: `for i in df.index: df.at[i, "c"] = ...`."""
+        stmt = cst.parse_statement(text + "\n")
+        column = _written_column(stmt)
+        names = target_names(node.target) or []
+
+        def build(snap: Mapping[str, Any], after: Mapping[str, Any]) -> list[Candidate]:
+            out = [Candidate(text, "plain", "np." in text)]
+            observed = _observed_dtype(after.get(frame), column) if column else None
+            if observed is not None:
+                cast = _cast_column_write(text, frame, observed)
+                if cast is not None:
+                    out.append(Candidate(cast, f"result dtype {observed}", "np." in cast))
+            return out
+
+        self._add(
+            node,
+            "PDD007",
+            "cell-by-cell writes in a loop",
+            inputs=_inputs(node, set(names)),
+            outputs=[frame],
+            loop_vars=names,
+            build=build,
+        )
+
     # -- statements: comprehension over iterrows, row-wise apply ---------------------
 
     def visit_SimpleStatementLine(self, node: cst.SimpleStatementLine) -> None:
@@ -232,9 +337,59 @@ class _Finder(cst.CSTVisitor):
             self._comprehension(node, target.value, assign.value)
             return
         for n in walk(assign.value):
-            if isinstance(n, cst.Call) and rowwise_apply(n):
+            if not isinstance(n, cst.Call):
+                continue
+            if rowwise_apply(n):
                 self._apply(node, target, n)
                 return
+            replacement = vectorised_elementwise(n)
+            if replacement is not None and _rooted_at_name(n):
+                self._swap_site(
+                    node,
+                    target,
+                    n,
+                    [("plain", replacement)],
+                    "PDD004",
+                    "element-wise `.apply`/`.map`",
+                )
+                return
+            replacement = groupby_apply_rewrite(n)
+            if replacement is not None and _rooted_at_name(n):
+                self._swap_site(
+                    node, target, n, [("plain", replacement)], "PDD005", "`groupby(...).apply(...)`"
+                )
+                return
+
+    def _swap_site(
+        self,
+        node: cst.SimpleStatementLine,
+        target: cst.BaseAssignTargetExpression,
+        call: cst.Call,
+        replacements: list[tuple[str, str]],
+        rule: str,
+        message: str,
+    ) -> None:
+        """A statement where one call is swapped for a vector expression."""
+        found = _output_of(target)
+        if found is None:
+            return
+        output, column = found
+
+        def build(snap: Mapping[str, Any], after: Mapping[str, Any]) -> list[Candidate]:
+            observed = _observed_dtype(after.get(output), column)
+            out: list[Candidate] = []
+            for label, base in replacements:
+                for suffix, extra in _wrappers(column, observed):
+                    replacement = f"{_paren_code(base)}{suffix}" if suffix else base
+                    stmt = node.visit(_Swap(call, cst.parse_expression(replacement)))
+                    assert isinstance(stmt, cst.SimpleStatementLine)
+                    text = code(stmt.with_changes(leading_lines=[]))
+                    out.append(
+                        Candidate(text, ", ".join(p for p in (label, extra) if p), "np." in text)
+                    )
+            return _dedupe(out)
+
+        self._add(node, rule, message, inputs=_inputs(node, set()), outputs=[output], build=build)
 
     def _comprehension(
         self, node: cst.SimpleStatementLine, out_name: str, comp: cst.ListComp
@@ -314,18 +469,10 @@ class _Finder(cst.CSTVisitor):
             translate(expr, row, frame)
         except Untranslatable:
             return
-        if isinstance(target, cst.Name):
-            output, column = target.value, None
-        elif (
-            isinstance(target, cst.Subscript)
-            and isinstance(target.value, cst.Name)
-            and len(target.slice) == 1
-            and isinstance(target.slice[0].slice, cst.Index)
-            and isinstance(target.slice[0].slice.value, cst.SimpleString)
-        ):
-            output, column = target.value.value, target.slice[0].slice.value.evaluated_value
-        else:
+        found_output = _output_of(target)
+        if found_output is None:
             return
+        output, column = found_output
 
         def build(snap: Mapping[str, Any], after: Mapping[str, Any]) -> list[Candidate]:
             df = snap.get(frame)
@@ -335,17 +482,7 @@ class _Finder(cst.CSTVisitor):
             faithful = _faithful_renderer(frame, df)
             if faithful is not None:
                 renderers.append(("row dtype like apply", faithful))
-            observed = after.get(output)
-            if (
-                column is not None
-                and observed is not None
-                and column in getattr(observed, "columns", [])
-            ):
-                observed_dtype: str | None = _dtype_text(observed[column].dtype)
-            elif column is None and observed is not None and hasattr(observed, "dtype"):
-                observed_dtype = _dtype_text(observed.dtype)
-            else:
-                observed_dtype = None
+            observed_dtype = _observed_dtype(after.get(output), column)
             out: list[Candidate] = []
             for label, render in renderers:
                 try:
@@ -353,22 +490,8 @@ class _Finder(cst.CSTVisitor):
                 except Untranslatable:
                     continue
                 base = _as_series(t, frame)
-                wrappers = [("", "")]
-                if column is None:
-                    wrappers.append((".rename(None)", "unnamed like apply"))
-                if observed_dtype is not None:
-                    wrappers.append(
-                        (f".astype({observed_dtype})", f"result dtype {observed_dtype}")
-                    )
-                    if column is None:
-                        wrappers.append(
-                            (
-                                f".astype({observed_dtype}).rename(None)",
-                                f"result dtype {observed_dtype}, unnamed",
-                            )
-                        )
-                for suffix, extra in wrappers:
-                    replacement = f"({base}){suffix}" if suffix else base
+                for suffix, extra in _wrappers(column, observed_dtype):
+                    replacement = f"{_paren_code(base)}{suffix}" if suffix else base
                     stmt = node.visit(_Swap(call, cst.parse_expression(replacement)))
                     assert isinstance(stmt, cst.SimpleStatementLine)
                     text = code(stmt.with_changes(leading_lines=[]))
@@ -391,6 +514,50 @@ class _Finder(cst.CSTVisitor):
         )
 
 
+def _output_of(target: cst.BaseAssignTargetExpression) -> tuple[str, str | None] | None:
+    """`s = ...` -> ("s", None); `df["c"] = ...` -> ("df", "c"); anything else -> None."""
+    if isinstance(target, cst.Name):
+        return target.value, None
+    if (
+        isinstance(target, cst.Subscript)
+        and isinstance(target.value, cst.Name)
+        and len(target.slice) == 1
+        and isinstance(target.slice[0].slice, cst.Index)
+        and isinstance(target.slice[0].slice.value, cst.SimpleString)
+    ):
+        key = target.slice[0].slice.value.evaluated_value
+        return (target.value.value, key) if isinstance(key, str) else None
+    return None
+
+
+def _observed_dtype(value: Any, column: str | None) -> str | None:
+    if value is None:
+        return None
+    if column is not None:
+        return _dtype_text(value[column].dtype) if column in getattr(value, "columns", []) else None
+    return _dtype_text(value.dtype) if hasattr(value, "dtype") else None
+
+
+def _wrappers(column: str | None, observed: str | None) -> list[tuple[str, str]]:
+    """Suffixes to try on a Series-valued rewrite: as is, unnamed, cast to the observed dtype."""
+    out = [("", "")]
+    if column is None:
+        out.append((".rename(None)", "unnamed like the original"))
+    if observed is not None:
+        out.append((f".astype({observed})", f"result dtype {observed}"))
+        if column is None:
+            out.append((f".astype({observed}).rename(None)", f"result dtype {observed}, unnamed"))
+    return out
+
+
+def _rooted_at_name(call: cst.Call) -> bool:
+    """The receiver chain starts at a plain variable, so its inputs can be copied."""
+    node: cst.BaseExpression = call.func
+    while isinstance(node, (cst.Attribute, cst.Subscript, cst.Call)):
+        node = node.func if isinstance(node, cst.Call) else node.value
+    return isinstance(node, cst.Name)
+
+
 class _Swap(cst.CSTTransformer):
     def __init__(self, target: cst.CSTNode, new: cst.BaseExpression) -> None:
         super().__init__()
@@ -401,19 +568,27 @@ class _Swap(cst.CSTTransformer):
         return self.new if original_node is self.target else updated_node
 
 
+def _paren_code(text: str) -> str:
+    """Parenthesise an expression's code only when a method chained onto it needs it."""
+    node = cst.parse_expression(text)
+    if node.lpar or isinstance(node, (cst.Name, cst.Attribute, cst.Subscript, cst.Call)):
+        return text
+    return f"({text})"
+
+
 def _as_series(t: Translation, frame: str) -> str:
     return f"pd.Series({t.code}, index={frame}.index)" if t.is_array else t.code
 
 
 def _written_column(stmt: cst.BaseStatement) -> str | None:
-    """The column a loop body writes with `df.at[i, "col"] = ...` (either branch)."""
+    """The column a statement writes: `df.at[i, "col"] = ...` or `df["col"] = ...`."""
     for n in walk(stmt):
         if (
             isinstance(n, cst.AssignTarget)
             and isinstance(n.target, cst.Subscript)
-            and len(n.target.slice) == 2
+            and len(n.target.slice) in (1, 2)
         ):
-            key = n.target.slice[1].slice
+            key = n.target.slice[-1].slice
             if isinstance(key, cst.Index) and isinstance(key.value, cst.SimpleString):
                 value = key.value.evaluated_value
                 return value if isinstance(value, str) else None

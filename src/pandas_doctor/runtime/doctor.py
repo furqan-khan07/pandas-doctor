@@ -29,6 +29,7 @@ from pandas_doctor.verify.timing import Timing, measure
 from pandas_doctor.verify.verdict import Different, Identical, Verdict, WithinTolerance, worst
 
 REPEAT_LIMIT = 1.0  # originals faster than this are re-run on copies for a median
+MIN_SPEEDUP = 1.2  # a verified rewrite is only recommended if it's at least this much faster
 MAX_COPY_BYTES = 2 * 1024**3
 _MISSING = object()
 
@@ -54,6 +55,19 @@ class SiteResult:
     @property
     def verified(self) -> bool:
         return self.chosen is not None
+
+    @property
+    def speedup(self) -> float | None:
+        if self.chosen is None or self.chosen.timing is None or self.original is None:
+            return None
+        if self.chosen.timing.seconds <= 0:
+            return None
+        return self.original.seconds / self.chosen.timing.seconds
+
+    @property
+    def worth_applying(self) -> bool:
+        """Verified *and* measurably faster: identical but slower code is not an improvement."""
+        return self.speedup is not None and self.speedup >= MIN_SPEEDUP
 
 
 def _lookup(name: str, loc: dict[str, Any], glob: dict[str, Any]) -> Any:
@@ -280,6 +294,59 @@ class Doctor:
         result.timing = measure(run_once, None, budget=self.budget / 2)
         if self._acceptable(verdict):
             res.chosen = result
+
+
+@dataclass(frozen=True)
+class MemoryFinding:
+    """PDD008: a text column that would be much smaller as `category` (both sizes measured)."""
+
+    frame: str
+    column: str
+    rows: int
+    distinct: int
+    before_bytes: int
+    after_bytes: int
+
+
+MIN_ROWS_FOR_CATEGORY = 10_000
+MIN_MEMORY_SAVING = 2.0
+
+
+def category_suggestions(
+    namespace: dict[str, Any], names: list[str] | None = None
+) -> list[MemoryFinding]:
+    """Text columns in the frames in `namespace` that `category` would shrink at least 2x."""
+    out: list[MemoryFinding] = []
+    for name, value in namespace.items():
+        if names is not None and name not in names:
+            continue
+        if (
+            name.startswith("_")
+            or not isinstance(value, pd.DataFrame)
+            or len(value) < MIN_ROWS_FOR_CATEGORY
+        ):
+            continue
+        for column in value.columns[:200]:
+            col = value[column]
+            if isinstance(col, pd.DataFrame):
+                continue  # duplicate column labels
+            if not (
+                pd.api.types.is_object_dtype(col.dtype) or pd.api.types.is_string_dtype(col.dtype)
+            ):
+                continue
+            if isinstance(col.dtype, pd.CategoricalDtype):
+                continue
+            try:
+                distinct = int(col.nunique(dropna=False))
+            except TypeError:
+                continue  # unhashable values (lists, dicts)
+            if distinct > len(col) // 2:
+                continue
+            before = int(col.memory_usage(deep=True, index=False))
+            after = int(col.astype("category").memory_usage(deep=True, index=False))
+            if after > 0 and before / after >= MIN_MEMORY_SAVING:
+                out.append(MemoryFinding(name, str(column), len(col), distinct, before, after))
+    return out
 
 
 def environment() -> str:

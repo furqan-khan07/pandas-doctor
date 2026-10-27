@@ -50,9 +50,16 @@ def _cmd_rules(args: argparse.Namespace) -> int:
 
     for rule in ALL_RULES:
         fix = {"safe": "fix ", "unsafe": "fix*"}.get(rule.fix_safety or "", "    ")
-        print(f"{rule.code}  {fix}  {rule.name:<16} {rule.summary}")
+        print(f"{rule.code}  {fix}  {rule.name:<18} {rule.summary}")
     print(
-        "\nfix:  `check --fix` rewrites it; the result is provably the same.\n"
+        f"PDD006  run   {'astype-loop':<18} per-column astype loop; reported by `run` only when one astype call is faster"
+    )
+    print(
+        f"PDD008  run   {'category-memory':<18} text columns much smaller as category; `run` measures the saving"
+    )
+    print(
+        "\nrun:  checked only by `pandas-doctor run` (needs the data).\n"
+        "fix:  `check --fix` rewrites it; the result is provably the same.\n"
         "fix*: needs `--unsafe-fixes`; identical only under a stated condition, "
         "which `pandas-doctor run` checks on your data."
     )
@@ -64,7 +71,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     import json
 
     from pandas_doctor.runtime import run_script
-    from pandas_doctor.runtime.report import report_dict, write_report
+    from pandas_doctor.runtime.report import report_dict, write_memory, write_report
 
     script = Path(args.script)
     if not script.is_file():
@@ -79,6 +86,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         budget=args.budget,
     )
     write_report(outcome.doctor, str(script), outcome.source.splitlines())
+    write_memory(outcome.memory)
     if args.json:
         Path(args.json).write_text(
             json.dumps(report_dict(outcome.doctor, str(script)), indent=2) + "\n"
