@@ -30,9 +30,10 @@ pandas-doctor checks pandas code for known slow patterns and, more importantly, 
    If the MCP server is connected, call the `verify_rewrite` tool instead.
 
 3. Report what it says, as it says it:
-   - `Identical`: say "identical on this data", with the measured times.
-   - `WithinTolerance`: say the floats match to the reported relative difference (usually summation order). Don't call it identical.
-   - `Different`: don't apply the rewrite as an optimisation. Its `reason` says what changed, often a dtype (iterrows turns ints into floats) or numpy vs Python scalars.
+   - `identical`: say "identical on this data", with the measured times.
+   - `scalar_types`: every value is equal, but some scalars changed type (e.g. `numpy.float64` vs `float`); the pairs are listed. Say exactly that, not "identical". It's usually fine to apply, but mention it if the result is serialised or type-checked (`json.dumps` rejects `numpy.int64`).
+   - `within_tolerance`: say the floats match to the reported relative difference (usually summation order). Don't call it identical.
+   - `different`: don't apply the rewrite as an optimisation. Its `reason` says what changed, often a dtype (iterrows turns ints into floats).
 
 4. If the user can run their script, `uvx pandas-doctor run script.py` checks every rewrite on the script's own data and prints a patch with `--diff`.
 

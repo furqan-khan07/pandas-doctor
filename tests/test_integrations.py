@@ -62,9 +62,21 @@ def test_mcp_verify_rewrite() -> None:
         candidate="df['b'] = df['a'] * 2",
         setup="import pandas as pd\ndf = pd.DataFrame({'a': [1.0, 2.0, 3.0]})\ndf['b'] = 0.0",
     )
-    assert result["verdict"] == "Identical"
+    assert result["verdict"] == "identical"
     assert result["scope"] == "verified on the given inputs only"
     assert result["original_time"] and result["candidate_time"]
+
+
+def test_mcp_verify_rewrite_scalar_types() -> None:
+    result = mcp_server.verify_rewrite(
+        original="out = []\nfor _, r in df.iterrows():\n    out.append(r['a'] * 2)",
+        candidate="out = (df['a'] * 2).tolist()",
+        setup="import pandas as pd\ndf = pd.DataFrame({'a': [1.0, 2.0, 3.0]})",
+    )
+    assert result["verdict"] == "scalar_types"
+    assert result["details"]["scalar_types"] == [["numpy.float64", "float"]]
+    assert "equal values, different scalar types" in result["description"]
+    assert result["outputs"]["out"]["kind"] == "scalar_types"
 
 
 def test_mcp_list_rules() -> None:

@@ -83,6 +83,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         list(args.args),
         rtol=args.rtol if accept else 1e-9,
         accept_tolerance=accept,
+        strict_types=args.strict_types,
         budget=args.budget,
     )
     hint = (
@@ -154,11 +155,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(result.describe())
     if result.refused:
         return EXIT_ERROR
-    from pandas_doctor.verify.verdict import Identical, WithinTolerance
+    from pandas_doctor.verify.verdict import accepted
 
-    ok = isinstance(result.verdict, Identical) or (
-        args.accept_tolerance and isinstance(result.verdict, WithinTolerance)
-    )
+    ok = accepted(result.verdict, tolerance=args.accept_tolerance, strict_types=args.strict_types)
     return EXIT_CLEAN if ok else EXIT_FINDINGS
 
 
@@ -227,6 +226,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="also accept rewrites whose floats match within this relative tolerance",
     )
+    run.add_argument(
+        "--strict-types",
+        action="store_true",
+        help="don't accept rewrites whose values match but whose scalar types differ "
+        "(e.g. numpy.float64 vs float)",
+    )
     run.add_argument("--json", metavar="PATH", help="also write the report as JSON")
     run.add_argument(
         "--budget", type=float, default=2.0, help="seconds spent timing each rewrite (default 2)"
@@ -252,6 +257,11 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--rtol", type=float, default=1e-9)
     verify.add_argument(
         "--accept-tolerance", action="store_true", help="exit 0 for 'equal within tolerance' too"
+    )
+    verify.add_argument(
+        "--strict-types",
+        action="store_true",
+        help="exit 1 for 'equal values, different scalar types' too",
     )
     verify.add_argument(
         "--trust-setup", action="store_true", help="skip the safety check on setup code"

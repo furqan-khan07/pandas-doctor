@@ -42,8 +42,11 @@ def verify_rewrite(
     rtol: float = 1e-9,
 ) -> dict[str, Any]:
     """Run `original` and `candidate` on the same inputs (built by `setup`), compare the
-    variables they produce, and time both. Verdicts: Identical, WithinTolerance (floats
-    differ by at most rtol; the largest difference is reported) or Different."""
+    variables they produce, and time both. `verdict` is one of: "identical";
+    "scalar_types" (every value equal, but some scalars have a different type, e.g.
+    numpy.float64 vs float; the pairs are in details.scalar_types, and it is not
+    identical); "within_tolerance" (floats differ by at most rtol; the largest difference
+    is reported); or "different"."""
     from pandas_doctor.verify.api import verify_code
 
     result = verify_code(original, candidate, setup=setup, outputs=outputs, rtol=rtol, budget=2.0)

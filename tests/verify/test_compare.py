@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pandas_doctor.verify import Different, Identical, WithinTolerance, compare
+from pandas_doctor.verify import Different, Identical, ScalarTypesDiffer, WithinTolerance, compare
+from pandas_doctor.verify.verdict import accepted, worst
 
 
 def frame() -> pd.DataFrame:
@@ -63,13 +64,32 @@ class TestDifferent:
         assert isinstance(verdict, Different)
         assert "dtype differs: int64 vs float64" in verdict.reason
 
-    def test_numpy_scalar_vs_python_scalar(self) -> None:
-        verdict = compare([np.float64(1.0)], [1.0])
+    def test_numpy_scalars_of_different_kind(self) -> None:
+        verdict = compare([np.float64(1.0)], [1])
         assert isinstance(verdict, Different)
-        assert "numpy.float64 vs float" in verdict.reason
+        assert "type differs: numpy.float64 vs int" in verdict.reason
 
-    def test_int_vs_numpy_int(self) -> None:
-        assert isinstance(compare(3, np.int64(3)), Different)
+    def test_two_numpy_widths(self) -> None:
+        # numpy.int32 vs numpy.int64 is a dtype difference, not a Python-vs-numpy one
+        assert isinstance(compare(np.int32(3), np.int64(3)), Different)
+
+    def test_scalar_types_with_different_values(self) -> None:
+        verdict = compare(1.0, np.float64(2.0))
+        assert isinstance(verdict, Different)
+
+    def test_float32_is_not_exact(self) -> None:
+        assert isinstance(compare(0.1, np.float32(0.1)), Different)
+
+    def test_object_column_types(self) -> None:
+        verdict = compare(pd.Series([1, 2], dtype=object), pd.Series([1.0, 2], dtype=object))
+        assert isinstance(verdict, Different) and "type differs at row 0: int vs float" in (
+            verdict.reason
+        )
+
+    def test_object_column_none_vs_nan(self) -> None:
+        a = pd.Series(["a", None], dtype=object)
+        b = pd.Series(["a", np.nan], dtype=object)
+        assert isinstance(compare(a, b), Different)
 
     def test_series_name(self) -> None:
         verdict = compare(pd.Series([1, 2], name="a"), pd.Series([1, 2]))
@@ -129,6 +149,85 @@ class TestDifferent:
     def test_object_values(self) -> None:
         verdict = compare(pd.Series(["a", "b"]), pd.Series(["a", "c"]))
         assert isinstance(verdict, Different)
+
+
+class TestScalarTypes:
+    """Equal values, but a numpy scalar where the original had a Python one (or back)."""
+
+    @pytest.mark.parametrize(
+        ("a", "b", "pair"),
+        [
+            (1.5, np.float64(1.5), ("float", "numpy.float64")),
+            (np.float64(1.5), 1.5, ("numpy.float64", "float")),
+            (3, np.int64(3), ("int", "numpy.int64")),
+            (True, np.bool_(True), ("bool", "numpy.bool")),
+            ("x", np.str_("x"), ("str", "numpy.str_")),
+            (1 + 2j, np.complex128(1 + 2j), ("complex", "numpy.complex128")),
+            (float("nan"), np.float64("nan"), ("float", "numpy.float64")),
+            (0.5, np.float32(0.5), ("float", "numpy.float32")),
+        ],
+    )
+    def test_pairs(self, a: object, b: object, pair: tuple[str, str]) -> None:
+        verdict = compare(a, b)
+        assert verdict == ScalarTypesDiffer((pair,))
+        assert not isinstance(verdict, Identical)
+
+    def test_describe_names_the_types(self) -> None:
+        verdict = compare([np.float64(1.0)], [1.0])
+        assert verdict.describe() == (
+            "equal values, different scalar types (numpy.float64 vs float) in [0]"
+        )
+        assert verdict.to_dict()["scalar_types"] == [["numpy.float64", "float"]]
+
+    def test_pairs_are_collected_once(self) -> None:
+        a = {"x": [np.float64(1.0), np.float64(2.0)], "n": np.int64(3)}
+        b = {"x": [1.0, 2.0], "n": 3}
+        verdict = compare(a, b)
+        assert isinstance(verdict, ScalarTypesDiffer)
+        assert verdict.types == (("numpy.float64", "float"), ("numpy.int64", "int"))
+
+    def test_object_column(self) -> None:
+        a = pd.Series([1.0, 2.0], dtype=object)
+        b = pd.Series([np.float64(1.0), 2.0], dtype=object)
+        assert compare(a, b) == ScalarTypesDiffer((("float", "numpy.float64"),), "series")
+
+    def test_with_tolerance_keeps_the_types(self) -> None:
+        verdict = compare([0.1 + 0.2], [np.float64(0.3)])
+        assert isinstance(verdict, WithinTolerance)
+        assert verdict.scalar_types == (("float", "numpy.float64"),)
+        assert "different scalar types (float vs numpy.float64)" in verdict.describe()
+
+    def test_different_wins(self) -> None:
+        verdict = compare([np.float64(1.0), "a"], [1.0, "b"])
+        assert isinstance(verdict, Different)
+
+    def test_longdouble_is_not_mixed_with_float(self) -> None:
+        wide = np.longdouble(1) / 3
+        if np.dtype(np.longdouble).itemsize <= 8:
+            pytest.skip("longdouble is float64 on this platform")
+        assert isinstance(compare(float(wide), wide), Different)
+
+
+class TestAccepted:
+    def test_policy(self) -> None:
+        types = ScalarTypesDiffer((("float", "numpy.float64"),))
+        tol = WithinTolerance(1e-16, 1e-16, 1e-9)
+        tol_types = WithinTolerance(1e-16, 1e-16, 1e-9, scalar_types=types.types)
+        assert accepted(Identical(), strict_types=True)
+        assert accepted(types) and not accepted(types, strict_types=True)
+        assert not accepted(tol) and accepted(tol, tolerance=True)
+        assert accepted(tol_types, tolerance=True)
+        assert not accepted(tol_types, tolerance=True, strict_types=True)
+        assert not accepted(Different("x"), tolerance=True)
+
+    def test_worst_order(self) -> None:
+        types = ScalarTypesDiffer((("int", "numpy.int64"),))
+        tol = WithinTolerance(1e-16, 1e-16, 1e-9, "w")
+        assert worst(Identical(), types) == types
+        assert worst(types, Identical()) == types
+        merged = worst(types, tol)
+        assert isinstance(merged, WithinTolerance) and merged.scalar_types == types.types
+        assert isinstance(worst(types, Different("x")), Different)
 
 
 class TestWithinTolerance:

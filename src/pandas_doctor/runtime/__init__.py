@@ -37,12 +37,19 @@ def run_script(
     *,
     rtol: float = DEFAULT_RTOL,
     accept_tolerance: bool = False,
+    strict_types: bool = False,
     budget: float = 2.0,
 ) -> RunOutcome:
     """Run a script the way `python path argv...` would, with the doctor watching."""
     source = path.read_text(encoding="utf-8")
     sitemap = find_sites(source, str(path))
-    doctor = Doctor(sitemap.sites, rtol=rtol, accept_tolerance=accept_tolerance, budget=budget)
+    doctor = Doctor(
+        sitemap.sites,
+        rtol=rtol,
+        accept_tolerance=accept_tolerance,
+        strict_types=strict_types,
+        budget=budget,
+    )
     code = compile(instrument(source, sitemap.sites), str(path), "exec")
     globs: dict[str, Any] = {
         "__name__": "__main__",
@@ -74,11 +81,18 @@ def run_cell(
     *,
     rtol: float = DEFAULT_RTOL,
     accept_tolerance: bool = False,
+    strict_types: bool = False,
     budget: float = 2.0,
 ) -> RunOutcome:
     """Run a notebook cell in the notebook's namespace with the doctor watching."""
     sitemap = find_sites(source, "<cell>")
-    doctor = Doctor(sitemap.sites, rtol=rtol, accept_tolerance=accept_tolerance, budget=budget)
+    doctor = Doctor(
+        sitemap.sites,
+        rtol=rtol,
+        accept_tolerance=accept_tolerance,
+        strict_types=strict_types,
+        budget=budget,
+    )
     code = compile(instrument(source, sitemap.sites), "<doctor cell>", "exec")
     namespace["__pdd__"] = doctor
     error = None

@@ -6,8 +6,12 @@ so whatever the tests prove is what the product claims.
 Strict means: same Python type (``numpy.float64`` is not ``float``), same dtype, same
 index and columns (labels, dtype and names), same Series names, missing values in the
 same places, and exactly equal values. The one leniency is pandas' own: a RangeIndex and
-an int64 Index with the same labels are treated as the same. Only floats get the softer ``WithinTolerance``
-verdict, and only when everything except the float values already matched.
+an int64 Index with the same labels are treated as the same.
+
+Two softer verdicts exist, and neither is ever called identical. ``ScalarTypesDiffer``
+is for a Python scalar and a numpy scalar of the same kind holding exactly the same
+value (``1.5`` vs ``numpy.float64(1.5)``). ``WithinTolerance`` is for floats, and only
+when everything except the float values already matched.
 """
 
 from __future__ import annotations
@@ -19,7 +23,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from pandas_doctor.verify.verdict import Different, Identical, Verdict, WithinTolerance, worst
+from pandas_doctor.verify.verdict import (
+    Different,
+    Identical,
+    ScalarTypesDiffer,
+    Verdict,
+    WithinTolerance,
+    worst,
+)
 
 DEFAULT_RTOL = 1e-9
 
@@ -40,8 +51,43 @@ def _where(where: str) -> str | None:
     return where or None
 
 
+# A Python scalar type and the numpy scalars that hold the same kind of value exactly.
+_SCALAR_KINDS: tuple[tuple[type, type], ...] = (
+    (bool, np.bool_),
+    (int, np.integer),
+    (float, np.floating),
+    (complex, np.complexfloating),
+    (str, np.str_),
+    (bytes, np.bytes_),
+)
+
+
+def _same_kind_scalars(a: Any, b: Any) -> bool:
+    """One is a builtin scalar, the other a numpy scalar of the same kind that converts to
+    it exactly (so numpy.longdouble doesn't count)."""
+    for builtin, numpy_type in _SCALAR_KINDS:
+        for x, y in ((a, b), (b, a)):
+            if type(x) is builtin and isinstance(y, numpy_type):
+                return not isinstance(y, (np.floating, np.complexfloating)) or (
+                    y.dtype.itemsize <= (8 if isinstance(y, np.floating) else 16)
+                )
+    return False
+
+
+def _mixed_scalars(a: Any, b: Any, rtol: float, where: str) -> Verdict:
+    if isinstance(a, (float, complex, np.floating, np.complexfloating)):
+        values = _float_scalar(a, b, rtol, where)
+    else:
+        values = _plain(a, b, where)
+    if isinstance(values, Different):
+        return values
+    return worst(values, ScalarTypesDiffer(((_type_name(a), _type_name(b)),), _where(where)))
+
+
 def _compare(a: Any, b: Any, rtol: float, where: str) -> Verdict:
     if type(a) is not type(b):
+        if _same_kind_scalars(a, b):
+            return _mixed_scalars(a, b, rtol, where)
         return Different(f"type differs: {_type_name(a)} vs {_type_name(b)}", _where(where))
     if isinstance(a, pd.DataFrame):
         return _frame(a, b, rtol, where)
@@ -219,12 +265,30 @@ def _series(a: pd.Series, b: pd.Series, rtol: float, where: str, *, check_index:
         pd.testing.assert_series_equal(
             a, b, check_exact=True, check_names=False, check_index=False, check_freq=False
         )
-        return _IDENTICAL
+        return _object_types(a, b, label) if a.dtype == object else _IDENTICAL
     except AssertionError:
         pass
     if _is_float_dtype(a.dtype):
         return _float_values(a, b, rtol, label)
     return _first_value_difference(a, b, label)
+
+
+def _object_types(a: pd.Series, b: pd.Series, where: str) -> Verdict:
+    """Equal object columns can still hold different Python types (1.0 vs numpy.float64)."""
+    types_a, types_b = list(map(type, a.array)), list(map(type, b.array))
+    if types_a == types_b:
+        return _IDENTICAL
+    pairs: dict[tuple[str, str], None] = {}
+    for pos, (ta, tb) in enumerate(zip(types_a, types_b, strict=True)):
+        if ta is tb:
+            continue
+        x, y = a.iloc[pos], b.iloc[pos]
+        if not _same_kind_scalars(x, y):
+            return Different(
+                f"type differs at row {a.index[pos]!r}: {_type_name(x)} vs {_type_name(y)}", where
+            )
+        pairs.setdefault((_type_name(x), _type_name(y)))
+    return ScalarTypesDiffer(tuple(pairs), where)
 
 
 def _first_value_difference(a: pd.Series, b: pd.Series, where: str) -> Different:

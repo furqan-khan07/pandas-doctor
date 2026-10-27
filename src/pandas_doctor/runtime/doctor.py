@@ -26,7 +26,15 @@ from pandas_doctor.runtime.sites import Candidate, Site
 from pandas_doctor.verify.compare import DEFAULT_RTOL, compare
 from pandas_doctor.verify.snapshot import NotCopyable, nbytes, snapshot_all
 from pandas_doctor.verify.timing import Timing, measure
-from pandas_doctor.verify.verdict import Different, Identical, Verdict, WithinTolerance, worst
+from pandas_doctor.verify.verdict import (
+    Different,
+    Identical,
+    Verdict,
+    WithinTolerance,
+    accepted,
+    preference,
+    worst,
+)
 
 REPEAT_LIMIT = 1.0  # originals faster than this are re-run on copies for a median
 MIN_SPEEDUP = 1.2  # a verified rewrite is only recommended if it's at least this much faster
@@ -90,12 +98,14 @@ class Doctor:
         *,
         rtol: float = DEFAULT_RTOL,
         accept_tolerance: bool = False,
+        strict_types: bool = False,
         budget: float = 2.0,
     ) -> None:
         self.sites = {s.id: s for s in sites}
         self.results = {s.id: SiteResult(s) for s in sites}
         self.rtol = rtol
         self.accept_tolerance = accept_tolerance
+        self.strict_types = strict_types
         self.budget = budget
         self.line_times: dict[int, float] = {}
         self._mark: tuple[int, float, float] | None = None
@@ -218,7 +228,12 @@ class Doctor:
         else:
             res.original = Timing(elapsed, 1)
 
-        for cand in candidates:
+        # Plainest first. A rewrite that's only equal up to scalar types still wins over
+        # a more contorted one that's identical; at the same plainness, identical wins.
+        best: CandidateResult | None = None
+        for cand in sorted(candidates, key=lambda c: c.adjustments):
+            if best is not None and cand.adjustments > best.candidate.adjustments:
+                break
             compiled = compile(cand.code, "<rewrite>", "exec")
             ns = self._namespace(glob, loc, snap)
             try:
@@ -242,16 +257,22 @@ class Doctor:
                 verdict = worst(verdict, v)
             result = CandidateResult(cand, verdict)
             res.tried.append(result)
-            if self._acceptable(verdict):
+            if self._acceptable(verdict) and (
+                best is None or preference(verdict) < preference(best.verdict)
+            ):
+                best = result
+                if isinstance(verdict, Identical):
+                    break
+        if best is not None:
+            chosen_code = compile(best.candidate.code, "<rewrite>", "exec")
 
-                def run_candidate(code: Any = compiled) -> None:
-                    with _quiet():
-                        exec(code, holder["ns"])
+            def run_candidate() -> None:
+                with _quiet():
+                    exec(chosen_code, holder["ns"])
 
-                result.timing = measure(run_candidate, fresh, budget=self.budget / 2)
-                res.chosen = result
-                break
-        if res.chosen is None:
+            best.timing = measure(run_candidate, fresh, budget=self.budget / 2)
+            res.chosen = best
+        else:
             near = next((r for r in res.tried if isinstance(r.verdict, WithinTolerance)), None)
             if near is not None:
                 near_code = compile(near.candidate.code, "<rewrite>", "exec")
@@ -263,9 +284,7 @@ class Doctor:
                 near.timing = measure(run_near, fresh, budget=self.budget / 2)
 
     def _acceptable(self, verdict: Verdict) -> bool:
-        return isinstance(verdict, Identical) or (
-            self.accept_tolerance and isinstance(verdict, WithinTolerance)
-        )
+        return accepted(verdict, tolerance=self.accept_tolerance, strict_types=self.strict_types)
 
     def _verify_concat(
         self, site: Site, res: SiteResult, elapsed: float, loc: dict[str, Any], glob: dict[str, Any]

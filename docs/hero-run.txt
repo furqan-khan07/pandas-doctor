@@ -1,30 +1,30 @@
 $ time python examples/hero/features.py
-real 29.34
+real 27.87
 
 $ pandas-doctor run --fix examples/hero/features.py
 pandas-doctor run: examples/hero/features.py   (pandas 3.1.0, numpy 2.5.4, Python 3.13.5)
 
 1. examples/hero/features.py:28  PDD001 `trips.iterrows()` loop
-   before   14.88 s  (timed once during your run)
-   after     1.5 ms  (median of 25)   9,950x faster
+   before   13.88 s  (timed once during your run)
+   after     1.4 ms  (median of 25)   9,717x faster
    result identical  (verified on this data)
    rewrite:
        trips["fare_per_mile"] = trips["fare"] / (trips["miles"] + 0.1)
 
 2. examples/hero/features.py:32  PDD002 `trips.apply(..., axis=1)`
-   before    2.82 s  (timed once during your run)
-   after     2.2 ms  (median of 25)   1,283x faster
+   before    2.74 s  (timed once during your run)
+   after     2.1 ms  (median of 25)   1,281x faster
    result identical  (verified on this data)
    rewrite:
        trips["tip_share"] = pd.Series(np.where(trips["fare"] > 0, trips["tip"] / trips["fare"], 0.0), index=trips.index)
 
 4. examples/hero/features.py:39  PDD001 `trips.iterrows()` loop
-   before    9.25 s  (timed once during your run)
-   after    69.4 ms  (median of 15)   133x faster
+   before    8.68 s  (timed once during your run)
+   after    68.1 ms  (median of 15)   128x faster
    result identical  (verified on this data)
    rewrite:
        card_revenue += (trips["fare"].astype("object") + trips["tip"].astype("object"))[trips["payment"].astype("object") == "card"].sum()
-   (the plainest rewrite was different: type differs: float vs numpy.float64; this one is row dtype like iterrows)
+   (the plainest rewrite was equal within rtol=1e-09 (largest relative difference 3.7e-15), and different scalar types (float vs numpy.float64); this one is row dtype like iterrows)
 
    ... 2 more
 
@@ -32,4 +32,4 @@ pandas-doctor run: examples/hero/features.py   (pandas 3.1.0, numpy 2.5.4, Pytho
 rewrote examples/hero/features.py
 
 $ time python examples/hero/features.py    # same output, byte for byte
-real 0.96
+real 1.01

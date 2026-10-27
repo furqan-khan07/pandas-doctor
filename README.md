@@ -4,7 +4,7 @@ pandas-doctor finds the slow pandas lines in your code, rewrites them, and check
 
 ![pandas-doctor run on a 1M-row feature engineering script](https://raw.githubusercontent.com/furqan-khan07/pandas-doctor/main/docs/demo.gif)
 
-That's a real run: [`examples/hero/features.py`](examples/hero/features.py), 1 million synthetic taxi trips with the kind of loops a lot of notebooks have. The script took **29.3 s**. pandas-doctor checked 5 rewrites on the script's own data, all identical and faster. After `--fix` the whole script runs in **0.96 s** and prints exactly the same output. Full report in [`docs/hero-run-full.txt`](docs/hero-run-full.txt).
+That's a real run: [`examples/hero/features.py`](examples/hero/features.py), 1 million synthetic taxi trips with the kind of loops a lot of notebooks have. The script took **27.9 s**. pandas-doctor checked 5 rewrites on the script's own data, all identical and faster. After `--fix` the whole script runs in **1.01 s** and prints exactly the same output. Full report in [`docs/hero-run-full.txt`](docs/hero-run-full.txt).
 
 ## Try it
 
@@ -31,18 +31,27 @@ for i, row in df.iterrows():
 ## What "identical" means
 
 Two results count as identical only when they have:
-- the same type (`numpy.float64` is not `float`)
+- the same type, down to each value (`numpy.float64` is not `float`)
 - the same dtype, index and columns, labels and names included
 - missing values in the same places
 - exactly equal values
 
+Every check ends in one of four verdicts:
+
+| Verdict | What it means | Does `run` apply it? |
+|---|---|---|
+| identical | everything above matches | yes |
+| equal values, different scalar types | every value is exactly equal, but some are numpy scalars where the original had Python ones, or the other way round. The report names the types. | yes, and the report says so. `--strict-types` turns this off. |
+| equal within tolerance | floats differ by at most `--rtol`, usually from summing in a different order. The largest difference is shown. | only with `--rtol` |
+| different | anything else, with the first place it differs | no |
+
 That's stricter than it sounds, and it catches real differences:
 
-- `iterrows` hands you each row as a Series, so an int column turns into floats when the frame also has float columns. The obvious rewrite keeps the ints, and the dtype changes.
-- In an all-numeric frame, collecting `row["x"] * 2` into a list gives numpy floats; the same thing via `.tolist()` gives Python floats.
-- Summing in a different order changes the last few bits of a float. pandas-doctor reports that as *equal within tolerance* and shows the largest difference, rather than calling it identical.
+- `iterrows` hands you each row as a Series, so an int column turns into floats when the frame also has float columns. The obvious rewrite keeps the ints, and the dtype changes: *different*.
+- In an all-numeric frame, collecting `row["x"] * 2` into a list gives numpy floats; the same thing via `.tolist()` gives Python floats: *equal values, different scalar types*. That rarely matters, but it can: `json.dumps` can't handle a `numpy.int64`.
+- Summing in a different order changes the last few bits of a float: *equal within tolerance*.
 
-When the plain rewrite isn't identical, pandas-doctor tries a few more faithful versions: the row dtype iterrows used, numpy scalars, the same summation order. It keeps the first one that matches exactly. If none does, it tells you why and changes nothing.
+When the plain rewrite isn't accepted, pandas-doctor tries a few more faithful versions: the row dtype iterrows used, numpy scalars, the same summation order. It keeps the plainest one that's accepted, and between equally plain ones it prefers identical. If none is accepted, it tells you why and changes nothing.
 
 A rewrite that is identical but not faster isn't recommended either. That happens: on python-backed strings, `.str.lower()` can be slower than `.apply(lambda x: x.lower())`.
 
@@ -63,6 +72,8 @@ An assistant can suggest the same rewrites, but it can't tell you whether they g
 ```bash
 pandas-doctor verify --setup setup.py --original slow.py --candidate fast.py
 ```
+
+`verify` exits 0 when the rewrite is identical or equal up to scalar types, unless you pass `--strict-types`; `--accept-tolerance` also lets *equal within tolerance* pass. With `--format json` (and `run --json`), the verdict is one of `identical`, `scalar_types`, `within_tolerance` or `different`, with the details next to it.
 
 ## What it looks for
 

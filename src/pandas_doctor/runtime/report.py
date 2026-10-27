@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from typing import TextIO
 
 from pandas_doctor.report import _Style, use_color
@@ -35,8 +36,9 @@ def _verdict_text(res: SiteResult, style: _Style) -> str:
         return style.yellow(near.verdict.describe() + "; not identical")
     if res.tried:
         first = res.tried[0].verdict
-        assert isinstance(first, Different)
-        return style.red(first.describe())
+        if isinstance(first, Different):
+            return style.red(first.describe())
+        return style.yellow(first.describe() + "; not accepted with --strict-types")
     return style.dim("not checked")
 
 
@@ -130,14 +132,23 @@ def write_report(
         print(file=stream)
         print(format_site(res, path, n, style), file=stream)
     good = [r for r in results if r.worth_applying]
-    identical = sum(1 for r in good if r.chosen and isinstance(r.chosen.verdict, Identical))
-    tolerant = sum(1 for r in good if r.chosen and isinstance(r.chosen.verdict, WithinTolerance))
+    kinds = Counter(r.chosen.verdict.kind for r in good if r.chosen)
     print(file=stream)
-    summary = f"{identical} of {len(results)} rewrites verified identical and faster"
-    if tolerant:
-        summary += f", {tolerant} equal within tolerance"
+    if kinds["identical"] == len(good):
+        summary = f"{len(good)} of {len(results)} rewrites verified identical and faster"
+    else:
+        parts = [
+            f"{kinds[kind]} {text}"
+            for kind, text in (
+                ("identical", "identical"),
+                ("scalar_types", "with equal values but different scalar types"),
+                ("within_tolerance", "equal within tolerance"),
+            )
+            if kinds[kind]
+        ]
+        summary = f"{len(good)} of {len(results)} rewrites verified and faster: " + ", ".join(parts)
     print(style.bold(summary + "."), file=stream)
-    if (identical or tolerant) and hint:
+    if good and hint:
         print(style.dim(hint), file=stream)
 
 
@@ -175,6 +186,7 @@ def report_dict(doctor: Doctor, path: str) -> dict[str, object]:
     sites = []
     for res in sorted(doctor.results.values(), key=lambda r: r.site.line):
         chosen = res.chosen
+        shown = chosen.verdict if chosen else (res.tried[0].verdict if res.tried else None)
         sites.append(
             {
                 "rule": res.site.rule,
@@ -183,9 +195,8 @@ def report_dict(doctor: Doctor, path: str) -> dict[str, object]:
                 "calls": res.calls,
                 "total_seconds": res.total_time,
                 "original_time": res.original.to_dict() if res.original else None,
-                "verdict": chosen.verdict.describe()
-                if chosen
-                else (res.tried[0].verdict.describe() if res.tried else None),
+                "verdict": shown.kind if shown else None,
+                "verdict_details": shown.to_dict() if shown else None,
                 "verified": chosen is not None,
                 "faster": res.worth_applying,
                 "speedup": res.speedup,

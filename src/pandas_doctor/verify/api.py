@@ -14,6 +14,8 @@ the inputs, and get back a verdict and two measured timings.
     'identical'
 
 The verdict holds for these inputs only; that's what "verified on this data" means.
+Verdicts: identical, equal values with different scalar types (e.g. numpy.float64 vs
+float), equal within a float tolerance, or different.
 """
 
 from __future__ import annotations
@@ -93,9 +95,10 @@ class VerifyResult:
     def to_dict(self) -> dict[str, object]:
         v = self.verdict
         return {
-            "verdict": type(v).__name__,
+            "verdict": v.kind,
             "description": v.describe(),
-            "outputs": {c.name: c.verdict.describe() for c in self.outputs},
+            "details": v.to_dict(),
+            "outputs": {c.name: c.verdict.to_dict() for c in self.outputs},
             "original_time": self.original.to_dict() if self.original else None,
             "candidate_time": self.candidate.to_dict() if self.candidate else None,
             "speedup": self.speedup,

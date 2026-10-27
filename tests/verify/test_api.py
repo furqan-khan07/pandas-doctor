@@ -96,4 +96,41 @@ def test_cli_verify(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:  # ty
     data = json.loads(capsys.readouterr().out)
     assert data["scope"] == "verified on the given inputs only"
     assert code in (0, 1)
-    assert data["verdict"] in {"Identical", "WithinTolerance", "Different"}
+    assert data["verdict"] in {"identical", "scalar_types", "within_tolerance", "different"}
+    assert data["details"]["kind"] == data["verdict"]
+
+
+SCALAR_ORIGINAL = "out = []\nfor _, r in df.iterrows():\n    out.append(r['a'] * 2)"
+SCALAR_CANDIDATE = "out = (df['a'] * 2).tolist()"
+SCALAR_SETUP = "import pandas as pd\ndf = pd.DataFrame({'a': [1.0, 2.0, 3.0]})"
+
+
+def test_verify_scalar_types() -> None:
+    r = verify_code(SCALAR_ORIGINAL, SCALAR_CANDIDATE, setup=SCALAR_SETUP, budget=0.1)
+    assert r.verdict.kind == "scalar_types"
+    assert "equal values, different scalar types (numpy.float64 vs float)" in r.describe()
+    data = r.to_dict()
+    assert data["verdict"] == "scalar_types"
+    assert data["details"]["scalar_types"] == [["numpy.float64", "float"]]
+
+
+@pytest.mark.parametrize(("extra", "expected"), [([], 0), (["--strict-types"], 1)])
+def test_cli_verify_scalar_types_exit_code(
+    capsys: pytest.CaptureFixture[str], extra: list[str], expected: int
+) -> None:
+    code = main(
+        [
+            "verify",
+            "--setup-code",
+            SCALAR_SETUP,
+            "--original-code",
+            SCALAR_ORIGINAL,
+            "--candidate-code",
+            SCALAR_CANDIDATE,
+            "--budget",
+            "0.1",
+            *extra,
+        ]
+    )
+    assert code == expected
+    assert "different scalar types" in capsys.readouterr().out

@@ -11,7 +11,7 @@ import pytest
 
 from pandas_doctor.cli import main
 from pandas_doctor.runtime import run_script
-from pandas_doctor.verify.verdict import Different, Identical, WithinTolerance
+from pandas_doctor.verify.verdict import Different, Identical, ScalarTypesDiffer, WithinTolerance
 
 HEADER = """\
 import numpy as np
@@ -54,21 +54,55 @@ def test_cell_write_verified_identical(tmp_path: Path) -> None:
     assert res.chosen.timing.seconds < res.original.seconds
 
 
-def test_list_append_numeric_frame_needs_numpy_scalars(tmp_path: Path) -> None:
+NUMERIC_LIST = """
+    num = df[["price", "qty"]]
+    out = []
+    for _, row in num.iterrows():
+        out.append(row["price"] * 2)
+"""
+
+
+def test_list_append_numeric_frame_scalar_types(tmp_path: Path) -> None:
+    path = script(tmp_path, NUMERIC_LIST)
+    _, res = only_result(path)
+    # all-numeric rows hold numpy.float64; `.tolist()` gives Python floats with the same
+    # values. That plain rewrite is chosen, and the report says the types differ.
+    assert res.chosen is res.tried[0]
+    verdict = res.chosen.verdict
+    assert isinstance(verdict, ScalarTypesDiffer)
+    assert verdict.types == (("numpy.float64", "float"),)
+    assert ".tolist()" in res.chosen.candidate.code
+    assert "different scalar types (numpy.float64 vs float)" in verdict.describe()
+
+
+def test_list_append_numeric_frame_strict_types(tmp_path: Path) -> None:
+    path = script(tmp_path, NUMERIC_LIST)
+    _, res = only_result(path, strict_types=True)
+    assert isinstance(res.tried[0].verdict, ScalarTypesDiffer)
+    assert res.chosen is not None and isinstance(res.chosen.verdict, Identical)
+    assert "np.asarray" in res.chosen.candidate.code
+
+
+def test_scalar_types_win_over_contorted_identical(tmp_path: Path) -> None:
+    # Rows are object dtype (there's a string column), so the loop adds Python ints;
+    # `.sum()` gives numpy.int64 with the same value. The plain sum beats the
+    # `.astype("object")` rewrite that would be identical.
     path = script(
         tmp_path,
         """
-        num = df[["price", "qty"]]
-        out = []
-        for _, row in num.iterrows():
-            out.append(row["price"] * 2)
+        count = 0
+        for _, row in df.iterrows():
+            if row["name"] == "Cy":
+                count += row["qty"]
         """,
     )
-    _, res = only_result(path)
-    # all-numeric rows hold numpy.float64; `.tolist()` gives Python floats: caught, not hidden
-    assert isinstance(res.tried[0].verdict, Different)
-    assert "numpy.float64 vs float" in res.tried[0].verdict.reason
-    assert res.chosen is not None and "np.asarray" in res.chosen.candidate.code
+    outcome, res = only_result(path)
+    assert res.chosen is res.tried[0]
+    assert isinstance(res.chosen.verdict, ScalarTypesDiffer)
+    assert res.chosen.verdict.types == (("int", "numpy.int64"),)
+    assert "astype" not in res.chosen.candidate.code
+    new_source, _ = outcome.rewritten()
+    assert ".sum()" in new_source and "iterrows" not in new_source
 
 
 def test_list_append_mixed_frame_plain_is_identical(tmp_path: Path) -> None:
@@ -284,3 +318,35 @@ def test_json_report(tmp_path: Path) -> None:
     assert data["scope"] == "verified on this run's data only"
     assert data["sites"][0]["verified"] is True
     assert data["sites"][0]["verdict"] == "identical"
+
+
+def test_scalar_types_report_and_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    import json
+
+    path = script(tmp_path, NUMERIC_LIST)
+    report = tmp_path / "report.json"
+    assert main(["run", "--budget", "0.2", "--json", str(report), str(path)]) == 0
+    err = capsys.readouterr().err
+    assert "result equal values, different scalar types (numpy.float64 vs float)" in err
+    assert "1 of 1 rewrites verified and faster: 1 with equal values but different" in err
+    site = json.loads(report.read_text())["sites"][0]
+    assert site["verdict"] == "scalar_types"
+    assert site["verdict_details"]["scalar_types"] == [["numpy.float64", "float"]]
+    assert site["verified"] is True
+
+
+def test_report_when_strict_types_rejects_the_only_match() -> None:
+    from pandas_doctor.report import _Style
+    from pandas_doctor.runtime.doctor import CandidateResult, SiteResult
+    from pandas_doctor.runtime.report import format_site
+    from pandas_doctor.runtime.sites import Candidate, find_sites
+
+    (site,) = find_sites("out = []\nfor _, r in df.iterrows():\n    out.append(r['a'])\n").sites
+    verdict = ScalarTypesDiffer((("numpy.float64", "float"),))
+    res = SiteResult(
+        site, calls=1, tried=[CandidateResult(Candidate("x", "plain", False), verdict)]
+    )
+    text = format_site(res, "job.py", 1, _Style(False))
+    assert (
+        "different scalar types (numpy.float64 vs float); not accepted with --strict-types" in text
+    )

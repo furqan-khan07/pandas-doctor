@@ -47,6 +47,14 @@ class Candidate:
     code: str
     label: str
     uses_numpy: bool
+    # How many tweaks this adds to the plainest rewrite (row dtype, numpy scalars, ...).
+    adjustments: int = 0
+
+
+def _candidate(text: str, parts: tuple[str, ...], uses_numpy: bool) -> Candidate:
+    """`parts` say how the candidate departs from the plainest rewrite; "plain" is none."""
+    shown = [p for p in parts if p]
+    return Candidate(text, ", ".join(shown), uses_numpy, sum(1 for p in shown if p != "plain"))
 
 
 @dataclass
@@ -216,7 +224,7 @@ class _Finder(cst.CSTVisitor):
                             if cell_dtype:
                                 parts.append(f"result dtype {cell_dtype}")
                             out.append(
-                                Candidate(text, ", ".join(parts), shape.uses_numpy or "np." in text)
+                                _candidate(text, tuple(parts), shape.uses_numpy or "np." in text)
                             )
             return _dedupe(out)
 
@@ -311,7 +319,7 @@ class _Finder(cst.CSTVisitor):
             if observed is not None:
                 cast = _cast_column_write(text, frame, observed)
                 if cast is not None:
-                    out.append(Candidate(cast, f"result dtype {observed}", "np." in cast))
+                    out.append(_candidate(cast, (f"result dtype {observed}",), "np." in cast))
             return out
 
         self._add(
@@ -379,14 +387,12 @@ class _Finder(cst.CSTVisitor):
             observed = _observed_dtype(after.get(output), column)
             out: list[Candidate] = []
             for label, base in replacements:
-                for suffix, extra in _wrappers(column, observed):
+                for suffix, extras in _wrappers(column, observed):
                     replacement = f"{_paren_code(base)}{suffix}" if suffix else base
                     stmt = node.visit(_Swap(call, cst.parse_expression(replacement)))
                     assert isinstance(stmt, cst.SimpleStatementLine)
                     text = code(stmt.with_changes(leading_lines=[]))
-                    out.append(
-                        Candidate(text, ", ".join(p for p in (label, extra) if p), "np." in text)
-                    )
+                    out.append(_candidate(text, (label, *extras), "np." in text))
             return _dedupe(out)
 
         self._add(node, rule, message, inputs=_inputs(node, set()), outputs=[output], build=build)
@@ -431,12 +437,14 @@ class _Finder(cst.CSTVisitor):
                 except Untranslatable:
                     continue
                 out.append(
-                    Candidate(f"{out_name} = {_p(value)}{mask}.tolist()", label, value.uses_numpy)
+                    _candidate(
+                        f"{out_name} = {_p(value)}{mask}.tolist()", (label,), value.uses_numpy
+                    )
                 )
                 inner = f"{_p(value)}{mask}" if mask else value.code
                 out.append(
-                    Candidate(
-                        f"{out_name} = list(np.asarray({inner}))", f"{label}, numpy scalars", True
+                    _candidate(
+                        f"{out_name} = list(np.asarray({inner}))", (label, "numpy scalars"), True
                     )
                 )
             return _dedupe(out)
@@ -490,18 +498,12 @@ class _Finder(cst.CSTVisitor):
                 except Untranslatable:
                     continue
                 base = _as_series(t, frame)
-                for suffix, extra in _wrappers(column, observed_dtype):
+                for suffix, extras in _wrappers(column, observed_dtype):
                     replacement = f"{_paren_code(base)}{suffix}" if suffix else base
                     stmt = node.visit(_Swap(call, cst.parse_expression(replacement)))
                     assert isinstance(stmt, cst.SimpleStatementLine)
                     text = code(stmt.with_changes(leading_lines=[]))
-                    out.append(
-                        Candidate(
-                            text,
-                            ", ".join(p for p in (label, extra) if p),
-                            t.uses_numpy or "np." in text,
-                        )
-                    )
+                    out.append(_candidate(text, (label, *extras), t.uses_numpy or "np." in text))
             return _dedupe(out)
 
         self._add(
@@ -538,15 +540,17 @@ def _observed_dtype(value: Any, column: str | None) -> str | None:
     return _dtype_text(value.dtype) if hasattr(value, "dtype") else None
 
 
-def _wrappers(column: str | None, observed: str | None) -> list[tuple[str, str]]:
+def _wrappers(column: str | None, observed: str | None) -> list[tuple[str, tuple[str, ...]]]:
     """Suffixes to try on a Series-valued rewrite: as is, unnamed, cast to the observed dtype."""
-    out = [("", "")]
+    out: list[tuple[str, tuple[str, ...]]] = [("", ())]
     if column is None:
-        out.append((".rename(None)", "unnamed like the original"))
+        out.append((".rename(None)", ("unnamed like the original",)))
     if observed is not None:
-        out.append((f".astype({observed})", f"result dtype {observed}"))
+        out.append((f".astype({observed})", (f"result dtype {observed}",)))
         if column is None:
-            out.append((f".astype({observed}).rename(None)", f"result dtype {observed}, unnamed"))
+            out.append(
+                (f".astype({observed}).rename(None)", (f"result dtype {observed}", "unnamed"))
+            )
     return out
 
 

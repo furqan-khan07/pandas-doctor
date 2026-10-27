@@ -27,6 +27,7 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="%%doctor", add_help=False)
     p.add_argument("--rewrite", action="store_true")
     p.add_argument("--rtol", type=float, default=None)
+    p.add_argument("--strict-types", action="store_true")
     p.add_argument("--budget", type=float, default=2.0)
     return p
 
@@ -36,7 +37,10 @@ def register(ipython: Any) -> None:
         try:
             args = _parser().parse_args(shlex.split(line))
         except SystemExit:
-            print("usage: %%doctor [--rewrite] [--rtol RTOL] [--budget SECONDS]", file=sys.stderr)
+            print(
+                "usage: %%doctor [--rewrite] [--rtol RTOL] [--strict-types] [--budget SECONDS]",
+                file=sys.stderr,
+            )
             return
         accept = args.rtol is not None
         outcome = run_cell(
@@ -44,6 +48,7 @@ def register(ipython: Any) -> None:
             ipython.user_ns,
             rtol=args.rtol if accept else 1e-9,
             accept_tolerance=accept,
+            strict_types=args.strict_types,
             budget=args.budget,
         )
         write_report(
