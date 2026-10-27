@@ -22,8 +22,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --python 3.13
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests benchmarks docs
+      - run: uv run ruff format --check src tests benchmarks docs
       - run: uv run mypy
 
   test:
@@ -43,6 +43,18 @@ jobs:
       - run: uv pip install "pandas==${{ matrix.pandas }}"
       - run: uv run --no-sync python -c "import pandas, sys; print(sys.version, pandas.__version__)"
       - run: uv run --no-sync pytest
+
+  action:
+    # the composite action, run against this repo's examples (summary only, no PR comment)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: doctor
+        uses: ./
+        with:
+          paths: examples
+          comment: "false"
+      - run: test "${{ steps.doctor.outputs.findings }}" -gt 0
 
   test-full:
     if: github.event_name == 'workflow_dispatch' && inputs.full

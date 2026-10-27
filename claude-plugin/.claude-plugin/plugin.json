@@ -1,0 +1,12 @@
+{
+  "name": "pandas-doctor",
+  "version": "0.1.0",
+  "description": "Find slow pandas code and prove rewrites on real data: identical results and measured speedups, not guesses.",
+  "author": {
+    "name": "Furqan Khan"
+  },
+  "homepage": "https://github.com/furqan-khan07/pandas-doctor",
+  "repository": "https://github.com/furqan-khan07/pandas-doctor",
+  "license": "MIT",
+  "keywords": ["pandas", "performance", "python", "data-science", "mcp", "verification"]
+}

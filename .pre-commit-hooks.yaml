@@ -1,0 +1,14 @@
+# Use in your .pre-commit-config.yaml:
+#
+#   - repo: https://github.com/furqan-khan07/pandas-doctor
+#     rev: v0.1.0
+#     hooks:
+#       - id: pandas-doctor
+#
+- id: pandas-doctor
+  name: pandas-doctor
+  description: Find slow pandas code (iterrows loops, row-wise apply, concat in loops, ...)
+  entry: pandas-doctor check
+  language: python
+  types_or: [python, jupyter]
+  require_serial: false

@@ -85,7 +85,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         accept_tolerance=accept,
         budget=args.budget,
     )
-    write_report(outcome.doctor, str(script), outcome.source.splitlines())
+    hint = (
+        ""
+        if (args.fix or args.diff)
+        else "Run again with --diff to see them as a patch, or --fix to apply them."
+    )
+    write_report(outcome.doctor, str(script), outcome.source.splitlines(), hint=hint)
     write_memory(outcome.memory)
     if args.json:
         Path(args.json).write_text(
@@ -155,6 +160,26 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         args.accept_tolerance and isinstance(result.verdict, WithinTolerance)
     )
     return EXIT_CLEAN if ok else EXIT_FINDINGS
+
+
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    try:
+        from pandas_doctor.mcp_server import main as serve
+    except ImportError:  # pragma: no cover - depends on the extra
+        print(
+            'pandas-doctor mcp needs the MCP extra: pip install "pandas-doctor[mcp]"',
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+    try:
+        serve()
+    except ImportError:
+        print(
+            'pandas-doctor mcp needs the MCP extra: pip install "pandas-doctor[mcp]"',
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+    return EXIT_CLEAN
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -234,6 +259,9 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--budget", type=float, default=2.0)
     verify.add_argument("--format", choices=("text", "json"), default="text")
     verify.set_defaults(func=_cmd_verify)
+
+    mcp = sub.add_parser("mcp", help="serve check/verify to AI assistants over MCP (stdio)")
+    mcp.set_defaults(func=_cmd_mcp)
 
     rules = sub.add_parser("rules", help="list the rules")
     rules.set_defaults(func=_cmd_rules)

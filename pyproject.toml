@@ -30,7 +30,7 @@ dependencies = ["pandas>=2.2", "libcst>=1.4"]
 
 [project.optional-dependencies]
 notebook = ["ipython>=8"]
-mcp = ["mcp>=1.2"]
+mcp = ["mcp>=1.2,<3"]
 
 [project.scripts]
 pandas-doctor = "pandas_doctor.cli:main"
@@ -40,7 +40,14 @@ Homepage = "https://github.com/furqan-khan07/pandas-doctor"
 Issues = "https://github.com/furqan-khan07/pandas-doctor/issues"
 
 [dependency-groups]
-dev = ["pytest>=8", "hypothesis>=6.100", "ruff>=0.15", "mypy>=1.10", "ipython>=8"]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6.100",
+    "ruff>=0.15",
+    "mypy>=1.10",
+    "ipython>=8",
+    "mcp>=1.2",
+]
 
 [tool.hatch.version]
 path = "src/pandas_doctor/__init__.py"

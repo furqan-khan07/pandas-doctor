@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pandas-doctor": {
+      "command": "uvx",
+      "args": ["--from", "pandas-doctor[mcp]", "pandas-doctor", "mcp"]
+    }
+  }
+}
