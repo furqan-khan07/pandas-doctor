@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from typing import TextIO
 
-from pandas_doctor.findings import Finding
+from pandas_doctor.findings import Finding, Severity
 
 
 class _Style:
@@ -50,7 +50,10 @@ def _indent(text: str, prefix: str) -> str:
 
 
 def format_finding(f: Finding, style: _Style, *, show_fix_reason: bool = False) -> str:
-    head = f"{style.bold(f.location())}: {style.red(f.code)} {f.message}"
+    if f.severity is Severity.INFO:
+        head = f"{style.bold(f.location())}: {style.cyan(f.code)} {style.dim('info:')} {f.message}"
+    else:
+        head = f"{style.bold(f.location())}: {style.red(f.code)} {f.message}"
     parts = [head]
     if f.fix is not None and f.fix.safe:
         parts.append(style.green(f"    fixable with --fix: {f.fix.description}"))
@@ -88,7 +91,14 @@ def write_text(
     if not findings and not fixed:
         print(style.green("No slow pandas patterns found."), file=stream)
         return
-    summary = f"Found {len(findings)} issue{'s' if len(findings) != 1 else ''}"
+    info = sum(1 for f in findings if f.severity is Severity.INFO)
+    issues = len(findings) - info
+    if issues or not info:
+        summary = f"Found {issues} issue{'s' if issues != 1 else ''}"
+        if info:
+            summary += f" and {info} info finding{'s' if info != 1 else ''}"
+    else:
+        summary = f"Found {info} info finding{'s' if info != 1 else ''}"
     extras = []
     if fixed:
         extras.append(f"fixed {fixed}")
@@ -99,6 +109,11 @@ def write_text(
     if extras:
         summary += " (" + ", ".join(extras) + ")"
     print(style.bold(summary + "."), file=stream)
+    if info:
+        print(
+            style.dim("Info findings have no rewrite to offer and don't fail the check."),
+            file=stream,
+        )
 
 
 def write_json(

@@ -85,6 +85,7 @@ class Rule(cst.BatchableCSTVisitor):
         note: str | None = None,
         fix: Fix | None = None,
         fix_skipped: str | None = None,
+        severity: Severity | None = None,
     ) -> None:
         pos = self.ctx.position(node)
         self.findings.append(
@@ -96,7 +97,7 @@ class Rule(cst.BatchableCSTVisitor):
                 column=pos.start.column + 1,
                 end_line=pos.end.line,
                 end_column=pos.end.column + 1,
-                severity=self.severity,
+                severity=severity or self.severity,
                 suggestion=suggestion,
                 note=note,
                 fix=fix,

@@ -28,6 +28,11 @@ def test_annotations_escape_newlines() -> None:
     assert "\n" not in line and "%0A" in line
 
 
+def test_info_findings_are_notices() -> None:
+    (line,) = github.annotation_lines([{**FINDING, "severity": "info", "suggestion": None}])
+    assert line.startswith("::notice file=src/job.py,line=12,col=1,title=PDD001::")
+
+
 def test_markdown_summary() -> None:
     md = github.markdown(
         [FINDING, {**FINDING, "code": "PDD003", "line": 30}], ["x.py: could not parse"]

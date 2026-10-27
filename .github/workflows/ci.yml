@@ -55,6 +55,7 @@ jobs:
           paths: examples
           comment: "false"
       - run: test "${{ steps.doctor.outputs.findings }}" -gt 0
+      - run: test "${{ steps.doctor.outputs.failing }}" -gt 0
 
   test-full:
     if: github.event_name == 'workflow_dispatch' && inputs.full

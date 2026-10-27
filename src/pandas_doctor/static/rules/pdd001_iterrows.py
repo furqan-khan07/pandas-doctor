@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 import libcst as cst
 
+from pandas_doctor.findings import Severity
 from pandas_doctor.static.analysis import (
     body_statements,
     code,
@@ -29,6 +30,12 @@ from pandas_doctor.static.translate import Translation, Untranslatable, translat
 NOTE = (
     "Not applied automatically: iterrows turns ints into floats when the frame also has "
     "float columns, so the rewrite can change dtypes. `pandas-doctor run` checks it on your data."
+)
+# Loops that match no vectorisable shape (plotting, printing, per-row API calls) are still
+# slow, but there's no rewrite to offer, so they're info: shown, never failing `check`.
+NO_SHAPE_NOTE = (
+    "Info only: no vectorised rewrite matches this loop (common for per-row side effects "
+    "like plotting or printing), so it doesn't fail `pandas-doctor check`."
 )
 
 
@@ -288,7 +295,11 @@ class IterrowsLoop(Rule):
         message = (
             f"`{frame}.iterrows()` builds a Series for every row, so this loop runs at Python speed"
         )
-        self.report(node, message, suggestion=self._suggest(node, frame_node), note=NOTE)
+        suggestion = self._suggest(node, frame_node)
+        if suggestion is None:
+            self.report(node, message, note=NO_SHAPE_NOTE, severity=Severity.INFO)
+        else:
+            self.report(node, message, suggestion=suggestion, note=NOTE)
 
     def visit_ListComp(self, node: cst.ListComp) -> None:
         comp = node.for_in
@@ -319,7 +330,8 @@ class IterrowsLoop(Rule):
             node,
             f"list comprehension over `{frame}.iterrows()` builds a Series for every row",
             suggestion=suggestion,
-            note=NOTE,
+            note=NOTE if suggestion else NO_SHAPE_NOTE,
+            severity=None if suggestion else Severity.INFO,
         )
 
     def _suggest(self, node: cst.For, frame_node: cst.BaseExpression) -> str | None:

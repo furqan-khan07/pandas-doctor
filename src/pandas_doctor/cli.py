@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pandas_doctor import __version__
 from pandas_doctor.config import apply_cli, load_config
+from pandas_doctor.findings import Severity
 
 EXIT_CLEAN, EXIT_FINDINGS, EXIT_ERROR = 0, 1, 2
 
@@ -40,7 +41,9 @@ def _cmd_check(args: argparse.Namespace) -> int:
         )
     if result.errors and not result.findings:
         return EXIT_ERROR if not args.exit_zero else EXIT_CLEAN
-    if result.findings and not args.exit_zero:
+    # info findings (no rewrite to offer) are reported but never fail the check
+    failing = [f for f in result.findings if f.severity is not Severity.INFO]
+    if failing and not args.exit_zero:
         return EXIT_FINDINGS
     return EXIT_CLEAN
 
@@ -205,7 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--select", help="only these rule codes, comma-separated")
     check.add_argument("--ignore", help="skip these rule codes, comma-separated")
     check.add_argument("--format", choices=("text", "json"), default="text")
-    check.add_argument("--exit-zero", action="store_true", help="exit 0 even when issues are found")
+    check.add_argument(
+        "--exit-zero",
+        action="store_true",
+        help="exit 0 even when warnings are found (info findings never fail the check)",
+    )
     check.add_argument("-v", "--verbose", action="store_true", help="say why a fix wasn't offered")
     check.set_defaults(func=_cmd_check)
 

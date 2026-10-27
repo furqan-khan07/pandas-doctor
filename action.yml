@@ -16,7 +16,7 @@ inputs:
     description: Post (and keep updating) one summary comment on the pull request
     default: "true"
   fail-on-findings:
-    description: Fail the job when slow patterns are found
+    description: Fail the job when slow patterns are found (info findings never fail it)
     default: "false"
   python-version:
     description: Python used to run pandas-doctor
@@ -46,6 +46,7 @@ runs:
         python -m pandas_doctor.github "$RUNNER_TEMP/pdd.json" --annotate > "$RUNNER_TEMP/pdd.md"
         cat "$RUNNER_TEMP/pdd.md" >> "$GITHUB_STEP_SUMMARY"
         echo "findings=$(python -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["findings"]))' "$RUNNER_TEMP/pdd.json")" >> "$GITHUB_OUTPUT"
+        echo "failing=$(python -c 'import json,sys; print(sum(f["severity"] != "info" for f in json.load(open(sys.argv[1]))["findings"]))' "$RUNNER_TEMP/pdd.json")" >> "$GITHUB_OUTPUT"
 
     - name: Comment on the pull request
       if: github.event_name == 'pull_request' && inputs.comment == 'true'
@@ -65,8 +66,8 @@ runs:
         fi
 
     - name: Fail on findings
-      if: inputs.fail-on-findings == 'true' && steps.check.outputs.findings != '0'
+      if: inputs.fail-on-findings == 'true' && steps.check.outputs.failing != '0'
       shell: bash
       run: |
-        echo "pandas-doctor found ${{ steps.check.outputs.findings }} slow pandas pattern(s)."
+        echo "pandas-doctor found ${{ steps.check.outputs.failing }} slow pandas pattern(s)."
         exit 1

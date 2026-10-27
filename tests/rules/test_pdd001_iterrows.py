@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from pandas_doctor.findings import Severity
 from tests.helpers import findings
 
 
@@ -177,5 +178,43 @@ class TestSuggestions:
         assert suggestion(source) is None
 
     def test_note_explains_why_not_automatic(self) -> None:
-        found = findings("for _, r in df.iterrows(): pass", "PDD001")
+        found = findings("for i, r in df.iterrows():\n    df.at[i, 'b'] = r['a'] + 1", "PDD001")
         assert found[0].note and "ints into floats" in found[0].note
+
+
+class TestSeverity:
+    """Loops with a vectorised rewrite are warnings; loops without one are info."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "for i, r in df.iterrows():\n    df.at[i, 'b'] = r['a'] + 1",
+            "x = [r['a'] * 2 for _, r in df.iterrows()]",
+        ],
+    )
+    def test_shape_match_is_a_warning(self, source: str) -> None:
+        (found,) = findings(source, "PDD001")
+        assert found.suggestion is not None
+        assert found.severity is Severity.WARNING
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # per-row side effects, the usual case in real notebooks
+            """
+            for _, row in df.iterrows():
+                folium.Marker([row["lat"], row["lon"]]).add_to(m)
+            """,
+            """
+            for i, row in df.iterrows():
+                print(i, row["name"])
+            """,
+            "x = [score(r) for _, r in df.iterrows()]",
+        ],
+    )
+    def test_no_shape_is_info(self, source: str) -> None:
+        (found,) = findings(source, "PDD001")
+        assert found.suggestion is None
+        assert found.severity is Severity.INFO
+        assert found.note and "doesn't fail" in found.note
+        assert found.to_dict()["severity"] == "info"

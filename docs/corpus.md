@@ -19,7 +19,11 @@ Before release, `pandas-doctor check` was run over 13 public repositories: noteb
 | ydataai/ydata-profiling | 98b1aba | 296 | 2 | 0 | 1.1 s |
 | **Total** | | **8,419** | **574** | **22** | **129 s** |
 
-The two Microsoft courses ship the same notebooks in many translations, so most of their findings are repeats. The 22 unparseable files are Python 2 code. The pandas repository is slow mostly because of a few test files over 10,000 lines.
+The two Microsoft courses ship the same notebooks in many translations, so most of their findings are repeats.
+
+The 22 unparseable files are Python 2 code. The pandas repository is slow mostly because of a few test files over 10,000 lines.
+
+None of the 99 PDD001 (`iterrows`) findings matched a vectorised rewrite; they're mostly per-row side effects like plotting and printing. Such loops are now reported at **info** severity, which never fails `check`. Re-running the check gives the same 574 findings: 475 warnings and 99 info.
 
 ## What was reviewed
 

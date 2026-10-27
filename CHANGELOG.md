@@ -5,7 +5,8 @@
 First release.
 
 - `pandas-doctor check`: static rules for `.py` files and notebooks, with text/JSON output,
-  `--diff`, `--fix` and `--unsafe-fixes`, and config in `[tool.pandas-doctor]`.
+  `--diff`, `--fix` and `--unsafe-fixes`, and config in `[tool.pandas-doctor]`. Findings are
+  warnings or info; info (an `iterrows` loop with no vectorised rewrite) never fails the check.
 - `pandas-doctor run script.py`: runs the script and checks each rewrite on its data
   (identical / equal values with different scalar types / equal within tolerance /
   different). It times both versions, applies only rewrites that are verified *and*

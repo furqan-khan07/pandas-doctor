@@ -15,7 +15,7 @@ pandas-doctor checks pandas code for known slow patterns and, more importantly, 
    uvx pandas-doctor check path/to/code.py --format json
    ```
 
-   Each finding has a `code` (PDD001 ...), a `message` and often a `suggestion`. Suggestions are **not verified** yet.
+   Each finding has a `code` (PDD001 ...), a `severity`, a `message` and often a `suggestion`. Suggestions are **not verified** yet. `info` findings are `iterrows` loops with no vectorised rewrite (usually per-row side effects); mention them, don't invent a rewrite.
 
 2. Before claiming a rewrite is equivalent or faster, verify it on representative inputs:
 

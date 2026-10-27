@@ -3,8 +3,9 @@
     pandas-doctor check . --format json --exit-zero > pdd.json
     python -m pandas_doctor.github pdd.json --annotate > summary.md
 
-`--annotate` prints `::warning file=...` lines so findings show up on the PR diff; the
-markdown goes to the job summary and, when enabled, a sticky PR comment.
+`--annotate` prints `::warning file=...` lines (`::notice` for info findings) so findings
+show up on the PR diff; the markdown goes to the job summary and, when enabled, a sticky
+PR comment.
 """
 
 from __future__ import annotations
@@ -31,8 +32,9 @@ def annotation_lines(findings: list[dict[str, Any]]) -> list[str]:
             message += f"\nSuggested rewrite:\n{f['suggestion']}"
         if f.get("cell") is not None:
             message = f"(cell {f['cell']}) " + message
+        level = {"info": "notice", "error": "error"}.get(f.get("severity", ""), "warning")
         out.append(
-            f"::warning file={f['path']},line={f['line']},col={f['column']},"
+            f"::{level} file={f['path']},line={f['line']},col={f['column']},"
             f"title={f['code']}::{_escape(message)}"
         )
     return out

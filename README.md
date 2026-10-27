@@ -97,6 +97,11 @@ Two results worth knowing:
 
 PDD006 and PDD008 need the data, so only `run` reports them. PDD006 shows up only when one `astype` call really is faster; on today's pandas releases it usually isn't.
 
+Findings come at two levels:
+
+- **warning**: a slow pattern worth fixing. `check` exits 1 when it finds one (`--exit-zero` to only report).
+- **info**: an `iterrows` loop that no vectorised rewrite matches, usually one that plots, prints or calls something for each row. All 99 `iterrows` findings in the corpus check below were like that. Info findings are listed (as notices in the GitHub Action) and never fail `check`.
+
 `check --fix` never changes behaviour on its own. The concat rewrite (PDD003) is identical only when every part has the same columns and dtypes; the property tests found frames where it isn't. So it's an unsafe fix that needs `--unsafe-fixes`, and `run` checks it on your data.
 
 Before release, `check` was run over 8,419 files from 13 public repos (pandas, statsmodels, Kaggle courses, popular notebook collections) to hunt for false positives. The results and fixes are in [`docs/corpus.md`](docs/corpus.md). Slow lines it found in well-known teaching notebooks, re-measured, are in the [speedup gallery](docs/gallery.md).

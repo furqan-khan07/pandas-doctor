@@ -109,3 +109,24 @@ def test_rules_lists_everything(capsys: pytest.CaptureFixture[str]) -> None:
     out = capsys.readouterr().out
     for code in ("PDD001", "PDD002", "PDD003"):
         assert code in out
+
+
+def test_info_findings_do_not_fail_the_check(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "plot.py").write_text("for _, row in df.iterrows():\n    print(row['a'])\n")
+    assert main(["check", str(tmp_path / "plot.py")]) == 0
+    out = capsys.readouterr().out
+    assert "PDD001 info:" in out
+    assert "Found 1 info finding." in out and "don't fail the check" in out
+
+
+def test_warnings_still_fail_next_to_info(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "mixed.py").write_text(
+        "for _, row in df.iterrows():\n    print(row['a'])\n"
+        "for i, row in df.iterrows():\n    df.at[i, 'b'] = row['a'] + 1\n"
+    )
+    assert main(["check", str(tmp_path / "mixed.py")]) == 1
+    assert "Found 1 issue and 1 info finding." in capsys.readouterr().out
