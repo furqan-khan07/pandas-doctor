@@ -1,0 +1,56 @@
+pandas-doctor run: examples/hero/features.py   (pandas 3.1.0, numpy 2.5.4, Python 3.13.5)
+
+Where the time went (top-level statements):
+  line 28      14.88 s  for i, row in trips.iterrows():
+  line 39       9.25 s  for _, row in trips.iterrows():
+  line 32       2.82 s  trips["tip_share"] = trips.apply(lambda r: r["tip"] / r["fare"] if r["
+  line 35       1.63 s  trips["long_trip"] = trips.apply(lambda r: "long" if r["minutes"] > 30
+  line 44       310 ms  trips["month"] = trips["pickup"].apply(lambda t: t.month)
+
+Rewrites checked on this data:
+
+1. examples/hero/features.py:28  PDD001 `trips.iterrows()` loop
+   before   14.88 s  (timed once during your run)
+   after     1.5 ms  (median of 25)   9,950x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["fare_per_mile"] = trips["fare"] / (trips["miles"] + 0.1)
+
+2. examples/hero/features.py:32  PDD002 `trips.apply(..., axis=1)`
+   before    2.82 s  (timed once during your run)
+   after     2.2 ms  (median of 25)   1,283x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["tip_share"] = pd.Series(np.where(trips["fare"] > 0, trips["tip"] / trips["fare"], 0.0), index=trips.index)
+
+3. examples/hero/features.py:35  PDD002 `trips.apply(..., axis=1)`
+   before    1.63 s  (timed once during your run)
+   after    36.0 ms  (median of 25)   45x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["long_trip"] = pd.Series(np.where(trips["minutes"] > 30, "long", "short"), index=trips.index)
+
+4. examples/hero/features.py:39  PDD001 `trips.iterrows()` loop
+   before    9.25 s  (timed once during your run)
+   after    69.4 ms  (median of 15)   133x faster
+   result identical  (verified on this data)
+   rewrite:
+       card_revenue += (trips["fare"].astype("object") + trips["tip"].astype("object"))[trips["payment"].astype("object") == "card"].sum()
+   (the plainest rewrite was different: type differs: float vs numpy.float64; this one is row dtype like iterrows)
+
+5. examples/hero/features.py:44  PDD004 element-wise `.apply`/`.map`
+   before    317 ms  (median of 4)
+   after     3.8 ms  (median of 25)   83x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["month"] = trips["pickup"].dt.month.astype("int64")
+   (the plainest rewrite was different: dtype differs: int64 vs int32 (in column 'month'); this one is plain, result dtype "int64")
+
+5 of 5 rewrites verified identical and faster.
+Run again with --diff to see them as a patch, or --fix to apply them.
+
+Memory (PDD008): text columns that would be much smaller as `category`
+  trips['payment']: 3 distinct values in 1,000,000 rows; 52.8 MB -> 1.0 MB (53x smaller, measured)
+  trips['long_trip']: 2 distinct values in 1,000,000 rows; 53.9 MB -> 1.0 MB (54x smaller, measured)
+  A suggestion only: category changes some behaviour (sorting follows category order, groupby lists unused categories unless observed=True).
+rewrote examples/hero/features.py
