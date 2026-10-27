@@ -88,6 +88,8 @@ PDD006 and PDD008 need the data, so only `run` reports them. PDD006 shows up onl
 
 `check --fix` never changes behaviour on its own. The concat rewrite (PDD003) is identical only when every part has the same columns and dtypes; the property tests found frames where it isn't. So it's an unsafe fix that needs `--unsafe-fixes`, and `run` checks it on your data.
 
+Before release, `check` was run over 8,419 files from 13 public repos (pandas, statsmodels, Kaggle courses, popular notebook collections) to hunt for false positives. The results and fixes are in [`docs/corpus.md`](docs/corpus.md).
+
 ## In CI
 
 pre-commit:
