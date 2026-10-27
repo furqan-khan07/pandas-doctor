@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pandas-doctor"
+dynamic = ["version"]
+description = "Finds slow pandas code, rewrites it, and checks on your data that the result is identical."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Furqan Khan" }]
+keywords = ["pandas", "performance", "linter", "vectorization", "profiling", "codemod"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Framework :: Jupyter",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
+dependencies = ["pandas>=2.2", "libcst>=1.4"]
+
+[project.optional-dependencies]
+notebook = ["ipython>=8"]
+mcp = ["mcp>=1.2"]
+
+[project.scripts]
+pandas-doctor = "pandas_doctor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/furqan-khan07/pandas-doctor"
+Issues = "https://github.com/furqan-khan07/pandas-doctor/issues"
+
+[dependency-groups]
+dev = ["pytest>=8", "hypothesis>=6.100", "ruff>=0.15", "mypy>=1.10", "ipython>=8"]
+
+[tool.hatch.version]
+path = "src/pandas_doctor/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE", "CHANGELOG.md"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PERF"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = ["pandas.*", "IPython.*", "mcp.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
