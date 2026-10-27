@@ -2,7 +2,7 @@
 
 pandas-doctor finds the slow pandas lines in your code, rewrites them, and checks on your own data that the result is exactly the same. Then it tells you how much faster the rewrite was, measured, not guessed.
 
-![pandas-doctor run on a 1M-row feature engineering script](docs/demo.gif)
+![pandas-doctor run on a 1M-row feature engineering script](https://raw.githubusercontent.com/furqan-khan07/pandas-doctor/main/docs/demo.gif)
 
 That's a real run: [`examples/hero/features.py`](examples/hero/features.py), 1 million synthetic taxi trips with the kind of loops a lot of notebooks have. The script took **29.3 s**. pandas-doctor checked 5 rewrites on the script's own data, all identical and faster. After `--fix` the whole script runs in **0.96 s** and prints exactly the same output. Full report in [`docs/hero-run-full.txt`](docs/hero-run-full.txt).
 
@@ -88,7 +88,7 @@ PDD006 and PDD008 need the data, so only `run` reports them. PDD006 shows up onl
 
 `check --fix` never changes behaviour on its own. The concat rewrite (PDD003) is identical only when every part has the same columns and dtypes; the property tests found frames where it isn't. So it's an unsafe fix that needs `--unsafe-fixes`, and `run` checks it on your data.
 
-Before release, `check` was run over 8,419 files from 13 public repos (pandas, statsmodels, Kaggle courses, popular notebook collections) to hunt for false positives. The results and fixes are in [`docs/corpus.md`](docs/corpus.md).
+Before release, `check` was run over 8,419 files from 13 public repos (pandas, statsmodels, Kaggle courses, popular notebook collections) to hunt for false positives. The results and fixes are in [`docs/corpus.md`](docs/corpus.md). Slow lines it found in well-known teaching notebooks, re-measured, are in the [speedup gallery](docs/gallery.md).
 
 ## In CI
 

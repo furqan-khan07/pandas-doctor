@@ -1,0 +1,77 @@
+{
+  "machine": {
+    "cpu": "Apple M4 Pro",
+    "cores": "12",
+    "os": "macOS-15.7.7-arm64-arm-64bit-Mach-O",
+    "python": "3.13.5",
+    "pandas": "3.1.0",
+    "numpy": "2.5.4",
+    "pyarrow": "not installed",
+    "pandas_doctor": "0.1.0.dev0"
+  },
+  "entries": [
+    {
+      "where": "Kaggle Learn pandas course, exercise 2",
+      "link": "https://github.com/Kaggle/learntools/blob/e9ba66dc89/notebooks/pandas/raw/ex_2.ipynb",
+      "pattern": "row-wise apply (PDD002)",
+      "rows": 129971,
+      "before": 0.4778363130026264,
+      "after": 9.083299664780498e-05,
+      "verdict": "identical"
+    },
+    {
+      "where": "Kaggle Learn pandas course, tutorial 2",
+      "link": "https://github.com/Kaggle/learntools/blob/e9ba66dc89/notebooks/pandas/raw/tut_2.ipynb",
+      "pattern": "map with a lambda (PDD004)",
+      "rows": 129971,
+      "before": 0.011134708998724818,
+      "after": 6.679099169559777e-05,
+      "verdict": "identical"
+    },
+    {
+      "where": "Python Data Science Handbook, seaborn chapter",
+      "link": "https://github.com/donnemartin/data-science-ipython-notebooks/blob/5b3c00d462/matplotlib/04.14-Visualization-With-Seaborn.ipynb",
+      "pattern": "map with a lambda (PDD004)",
+      "rows": 37250,
+      "before": 0.0028047919913660735,
+      "after": 9.800001862458885e-05,
+      "verdict": "identical"
+    },
+    {
+      "where": "pandas_exercises, time series",
+      "link": "https://github.com/guipsamora/pandas_exercises/blob/daf0fd2c7c/09_Time_Series/Getting_Financial_Data/Exercises_solutions.ipynb",
+      "pattern": "map on timestamps (PDD004)",
+      "rows": 1300,
+      "before": 0.0003859160060528666,
+      "after": 8.870800957083702e-05,
+      "verdict": "identical"
+    },
+    {
+      "where": "Data Science for Beginners, data preparation",
+      "link": "https://github.com/microsoft/Data-Science-For-Beginners/blob/4d2ac427ad/2-Working-With-Data/08-data-preparation/notebook.ipynb",
+      "pattern": "apply with if/else (PDD004)",
+      "rows": 100000,
+      "before": 0.006132124981377274,
+      "after": 0.0001897089823614806,
+      "verdict": "identical"
+    },
+    {
+      "where": "Data Science for Beginners, working with data",
+      "link": "https://github.com/microsoft/Data-Science-For-Beginners/blob/4d2ac427ad/2-Working-With-Data/07-python/notebook.ipynb",
+      "pattern": "apply len() on strings (PDD004)",
+      "rows": 100000,
+      "before": 0.017424332996597514,
+      "after": 0.00271687499480322,
+      "verdict": "identical"
+    },
+    {
+      "where": "Effective pandas (Tom Augspurger), tidy data",
+      "link": "https://github.com/TomAugspurger/effective-pandas/blob/bb3f49066b/modern_5_tidy.ipynb",
+      "pattern": "groupby.apply aggregating (PDD005)",
+      "rows": 2460,
+      "before": 0.001333749998593703,
+      "after": 0.0005560409917961806,
+      "verdict": "identical"
+    }
+  ]
+}
