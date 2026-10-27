@@ -179,10 +179,13 @@ class _Translator:
         row: str,
         column: Callable[[str], str],
         blocked: frozenset[str],
+        series: str | None = None,
     ) -> None:
         self.row = row
         self.column = column
         self.blocked = blocked
+        # elementwise mode: `row` is one element of this Series, not a row of a frame
+        self.series = series
         self.uses_numpy = False
 
     # Each method returns the rewritten node plus what kind of value it is.
@@ -190,6 +193,11 @@ class _Translator:
     def tx(self, node: cst.BaseExpression) -> _T:
         if isinstance(node, cst.Name):
             if node.value == self.row:
+                if self.series is not None:
+                    return _T(
+                        _paren(_expr(self.series)).with_changes(lpar=node.lpar, rpar=node.rpar),
+                        vector=True,
+                    )
                 raise Untranslatable(f"`{self.row}` is used as a whole row")
             if node.value in self.blocked:
                 raise Untranslatable(f"`{node.value}` changes inside the loop")
@@ -221,6 +229,8 @@ class _Translator:
         return new.with_changes(lpar=original.lpar, rpar=original.rpar)
 
     def _subscript(self, node: cst.Subscript) -> _T:
+        if self.series is not None and self._mentions_row(node):
+            raise Untranslatable("indexing into each element")
         if isinstance(node.value, cst.Name) and node.value.value == self.row:
             if len(node.slice) != 1 or not isinstance(node.slice[0].slice, cst.Index):
                 raise Untranslatable("row indexed with a slice")
@@ -235,7 +245,11 @@ class _Translator:
 
     def _attribute(self, node: cst.Attribute) -> _T:
         attr = node.attr.value
-        if isinstance(node.value, cst.Name) and node.value.value == self.row:
+        if (
+            self.series is None
+            and isinstance(node.value, cst.Name)
+            and node.value.value == self.row
+        ):
             if attr in _series_attrs() or attr.startswith("_"):
                 raise Untranslatable(f"`{self.row}.{attr}` is a Series attribute, not a column")
             return _T(self._column_node(f'"{attr}"', node), vector=True)
@@ -463,14 +477,17 @@ def translate(
     *,
     blocked: frozenset[str] = frozenset(),
     column: Callable[[str], str] | None = None,
+    elementwise: bool = False,
 ) -> Translation:
     """Translate `expr` (which reads `row`) into column form over `frame`.
 
     `column` renders one column reference from its quoted name; the default is
-    `frame[name]`. Raises Untranslatable when there's no one-to-one equivalent.
+    `frame[name]`. With `elementwise`, `row` stands for one element of the Series
+    `frame` (as in `s.apply(lambda x: ...)`), and bare uses of it become the Series.
+    Raises Untranslatable when there's no one-to-one equivalent.
     """
     render = column or (lambda literal: f"{frame}[{literal}]")
-    tr = _Translator(row, render, blocked)
+    tr = _Translator(row, render, blocked, series=frame if elementwise else None)
     result = tr.tx(expr)
     if not result.vector:
         raise Untranslatable("the expression doesn't use any column")

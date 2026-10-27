@@ -6,11 +6,17 @@ from pandas_doctor.static.rules.base import FileContext, Rule
 from pandas_doctor.static.rules.pdd001_iterrows import IterrowsLoop
 from pandas_doctor.static.rules.pdd002_apply_rowwise import RowwiseApply
 from pandas_doctor.static.rules.pdd003_concat_in_loop import ConcatInLoop
+from pandas_doctor.static.rules.pdd004_elementwise_apply import ElementwiseApply
+from pandas_doctor.static.rules.pdd005_groupby_apply import GroupbyApply
+from pandas_doctor.static.rules.pdd007_cell_loop import CellLoop
 
 ALL_RULES: tuple[type[Rule], ...] = (
     IterrowsLoop,
     RowwiseApply,
     ConcatInLoop,
+    ElementwiseApply,
+    GroupbyApply,
+    CellLoop,
 )
 
 BY_CODE: dict[str, type[Rule]] = {rule.code: rule for rule in ALL_RULES}
