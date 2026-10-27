@@ -150,4 +150,4 @@ Found a false positive, or a slow pattern it should know? Open an issue with a s
 
 ---
 
-Made by [Furqan Khan](https://github.com/furqan-khan07), a pandas contributor. MIT licensed.
+Made by [Furqan Khan](https://github.com/furqan-khan07), a pandas contributor whose DST plotting fix ([pandas-dev/pandas#69960](https://github.com/pandas-dev/pandas/pull/69960)) is merged and ships in pandas 3.2. MIT licensed.
