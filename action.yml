@@ -26,6 +26,9 @@ outputs:
   findings:
     description: Number of slow patterns found
     value: ${{ steps.check.outputs.findings }}
+  failing:
+    description: Number of findings that fail the check (info findings don't count)
+    value: ${{ steps.check.outputs.failing }}
 
 runs:
   using: composite
