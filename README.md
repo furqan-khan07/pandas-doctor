@@ -1,5 +1,7 @@
 # pandas-doctor
 
+[![PyPI](https://img.shields.io/pypi/v/pandas-doctor)](https://pypi.org/project/pandas-doctor/) [![pandas-doctor MCP server](https://glama.ai/mcp/servers/furqan-khan07/pandas-doctor/badges/score.svg)](https://glama.ai/mcp/servers/furqan-khan07/pandas-doctor)
+
 pandas-doctor finds the slow pandas lines in your code, rewrites them, and checks on your own data that the result is exactly the same. Then it tells you how much faster the rewrite was, measured, not guessed.
 
 ![pandas-doctor run on a month of real NYC taxi trips](https://raw.githubusercontent.com/furqan-khan07/pandas-doctor/main/docs/demo.gif)
