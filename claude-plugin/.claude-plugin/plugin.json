@@ -13,8 +13,12 @@
     "performance",
     "python",
     "data-science",
-    "mcp",
-    "verification"
+    "verification",
+    "jupyter"
   ],
-  "icon": ".claude-plugin/icon.png"
+  "icon": ".claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/furqan-khan07/pandas-doctor#readme",
+  "supportUrl": "https://github.com/furqan-khan07/pandas-doctor/issues",
+  "privacyPolicyUrl": "https://github.com/furqan-khan07/pandas-doctor/blob/main/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/furqan-khan07/pandas-doctor/blob/main/LICENSE"
 }
