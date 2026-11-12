@@ -99,9 +99,11 @@ def test_manifests_are_valid_json() -> None:
     for path in [
         ".claude-plugin/marketplace.json",
         "claude-plugin/.claude-plugin/plugin.json",
-        "claude-plugin/.mcp.json",
+        "server.json",
     ]:
         json.loads((ROOT / path).read_text())
+    # the directory only takes skill-only plugins from unverified publishers
+    assert not (ROOT / "claude-plugin/.mcp.json").exists()
     skill = (ROOT / "claude-plugin/skills/pandas-doctor/SKILL.md").read_text()
     assert skill.startswith("---\nname: pandas-doctor\n")
 
