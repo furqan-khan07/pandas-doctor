@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "pandas-doctor": {
-      "command": "uvx",
-      "args": ["--from", "pandas-doctor[mcp]", "pandas-doctor", "mcp"]
+      "command": "uv",
+      "args": ["run", "--locked", "--project", "${CLAUDE_PLUGIN_ROOT}/server", "pandas-doctor", "mcp"]
     }
   }
 }

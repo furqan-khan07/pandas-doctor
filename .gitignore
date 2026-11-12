@@ -22,3 +22,6 @@ dist/
 .DS_Store
 benchmarks/results/*.tmp.json
 .venv-*/
+
+# the plugin server env uv creates
+claude-plugin/server/.venv/
