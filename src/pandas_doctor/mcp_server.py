@@ -12,7 +12,9 @@ original/rewrite), the same rule `pandas-doctor verify` uses.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 INSTRUCTIONS = (
     "pandas-doctor finds slow pandas patterns and proves rewrites. Before telling a user that a "
@@ -22,8 +24,22 @@ INSTRUCTIONS = (
 )
 
 
-def check_code(code: str, filename: str = "snippet.py") -> dict[str, Any]:
-    """Find slow pandas patterns in Python source; returns findings with suggested rewrites."""
+def check_code(
+    code: Annotated[
+        str, Field(description="Python source to scan: a script, module or notebook cell.")
+    ],
+    filename: Annotated[
+        str, Field(description="Name shown in findings; use the real path if there is one.")
+    ] = "snippet.py",
+) -> dict[str, Any]:
+    """Scan Python source for slow pandas patterns (iterrows loops, row-wise apply, concat in a
+    loop, cell-by-cell writes, groupby-apply aggregates) without running it.
+
+    Use this first, to find what is worth rewriting. Each finding has a rule code (see
+    list_rules), a line, a severity, a message and often a suggested rewrite. Suggestions are
+    not verified: before telling the user a rewrite is equivalent or faster, call
+    verify_rewrite on representative inputs. Read-only: the code is parsed, never executed.
+    """
     from pandas_doctor.static.engine import check_source
 
     result = check_source(code, filename)
@@ -35,18 +51,57 @@ def check_code(code: str, filename: str = "snippet.py") -> dict[str, Any]:
 
 
 def verify_rewrite(
-    original: str,
-    candidate: str,
-    setup: str = "",
-    outputs: list[str] | None = None,
-    rtol: float = 1e-9,
+    original: Annotated[
+        str,
+        Field(
+            description="The pandas code to replace, e.g. an iterrows loop. It can use the "
+            "variables setup creates."
+        ),
+    ],
+    candidate: Annotated[
+        str, Field(description="The rewrite that should produce the same variables as original.")
+    ],
+    setup: Annotated[
+        str,
+        Field(
+            description="Code run once to build representative inputs, e.g. a DataFrame "
+            "with realistic size and dtypes. It may read files and use seeded randomness. "
+            "Leave empty if original builds its own inputs."
+        ),
+    ] = "",
+    outputs: Annotated[
+        list[str] | None,
+        Field(
+            description="Names of the variables to compare. Default: the variables "
+            "original assigns."
+        ),
+    ] = None,
+    rtol: Annotated[
+        float,
+        Field(
+            description="Relative tolerance for floats. Results that differ by no more "
+            "than this get within_tolerance instead of different.",
+            ge=0,
+        ),
+    ] = 1e-9,
 ) -> dict[str, Any]:
-    """Run `original` and `candidate` on the same inputs (built by `setup`), compare the
-    variables they produce, and time both. `verdict` is one of: "identical";
-    "scalar_types" (every value equal, but some scalars have a different type, e.g.
-    numpy.float64 vs float; the pairs are in details.scalar_types, and it is not
-    identical); "within_tolerance" (floats differ by at most rtol; the largest difference
-    is reported); or "different"."""
+    """Check that a pandas rewrite gives the same result as the original, and measure whether
+    it is faster.
+
+    Use this before telling the user a rewrite is equivalent or faster; use check_code to find
+    candidates. Runs setup once, then original and candidate on separate copies of its
+    variables, compares each output strictly (type, dtype, index, names, NaN positions, exact
+    values) and times both (median of repeated runs, about 2 s budget).
+
+    Side effects: executes the given code locally. original and candidate must be pure
+    computation (no file, network, subprocess or global-state calls, no unseeded randomness);
+    otherwise nothing runs and `refused` says why. The verdict holds for these inputs only.
+
+    `verdict` is "identical"; "scalar_types" (every value equal, but some scalars differ in
+    type, e.g. numpy.float64 vs float, listed in details.scalar_types; not identical);
+    "within_tolerance" (floats differ by at most rtol, largest difference reported); or
+    "different" (with where).
+    """
     from pandas_doctor.verify.api import verify_code
 
     result = verify_code(original, candidate, setup=setup, outputs=outputs, rtol=rtol, budget=2.0)
@@ -54,7 +109,12 @@ def verify_rewrite(
 
 
 def list_rules() -> list[dict[str, str]]:
-    """The patterns pandas-doctor knows, with their codes."""
+    """List the slow pandas patterns pandas-doctor knows, with their rule codes.
+
+    Use this to look up a code from a check_code finding (PDD001 ...) or to see which patterns
+    are covered. `fix` says whether check_code can rewrite the pattern safely, only as a
+    suggestion, or only at runtime (`pandas-doctor run`). Read-only, no arguments.
+    """
     from pandas_doctor.static.rules import ALL_RULES
 
     rules = [
@@ -91,10 +151,16 @@ def build_server() -> Any:
     except ImportError:  # mcp 1.x
         from mcp.server.fastmcp import FastMCP as Server  # type: ignore[no-redef,attr-defined]
 
+    from mcp.types import ToolAnnotations
+
+    # by alias: the field names are camelCase in mcp 1.x and snake_case in 2.x
+    hints = {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False}
+    read_only = ToolAnnotations.model_validate(hints)
+    runs_code = ToolAnnotations.model_validate({**hints, "destructiveHint": False})
     server = Server("pandas-doctor", instructions=INSTRUCTIONS)
-    server.tool()(check_code)
-    server.tool()(verify_rewrite)
-    server.tool()(list_rules)
+    server.tool(title="Find slow pandas code", annotations=read_only)(check_code)
+    server.tool(title="Verify a pandas rewrite", annotations=runs_code)(verify_rewrite)
+    server.tool(title="List pandas-doctor rules", annotations=read_only)(list_rules)
     return server
 
 

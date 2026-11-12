@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 (2026-11-12)
+
+- MCP tools have titles, read-only/idempotent annotations, a description for every parameter, and
+  descriptions that say when to use each tool and what `verify_rewrite` runs.
+- The Claude Code plugin is a skill only; set up the MCP server with `claude mcp add` (see README).
+- Dependabot and CodeQL.
+
 ## 0.1.1 (2026-11-12)
 
 - Listed in the MCP Registry as `io.github.furqan-khan07/pandas-doctor` (`server.json`), with setup snippets for

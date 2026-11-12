@@ -7,15 +7,15 @@
     "url": "https://github.com/furqan-khan07/pandas-doctor",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "pandas-doctor",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "runtimeHint": "uvx",
       "runtimeArguments": [
-        { "type": "named", "name": "--from", "value": "pandas-doctor[mcp]==0.1.1" }
+        { "type": "named", "name": "--from", "value": "pandas-doctor[mcp]==0.1.2" }
       ],
       "transport": { "type": "stdio" },
       "packageArguments": [
