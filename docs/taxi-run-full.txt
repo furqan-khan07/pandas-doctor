@@ -1,0 +1,61 @@
+$ time python examples/taxi/features.py yellow_tripdata_2024-01.parquet
+real 96.55
+
+$ pandas-doctor run --fix examples/taxi/features.py yellow_tripdata_2024-01.parquet
+pandas-doctor run: examples/taxi/features.py   (pandas 3.1.0, numpy 2.5.4, Python 3.13.5)
+
+Where the time went (top-level statements):
+  line 31      47.72 s  for i, row in trips.iterrows():
+  line 44      31.80 s  for _, row in trips.iterrows():
+  line 35       9.44 s  trips["tip_share"] = trips.apply(
+  line 40       6.26 s  trips["long_trip"] = trips.apply(lambda r: "long" if r["minutes"] > 30
+  line 49       1.15 s  trips["hour"] = trips["tpep_pickup_datetime"].apply(lambda t: t.hour)
+
+Rewrites checked on this data:
+
+1. examples/taxi/features.py:31  PDD001 `trips.iterrows()` loop
+   before   47.72 s  (timed once during your run)
+   after     2.6 ms  (median of 25)   18,346x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["fare_per_mile"] = trips["fare_amount"] / (trips["trip_distance"] + 0.1)
+
+2. examples/taxi/features.py:35  PDD002 `trips.apply(..., axis=1)`
+   before    9.44 s  (timed once during your run)
+   after     4.6 ms  (median of 25)   2,057x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["tip_share"] = pd.Series(np.where(trips["fare_amount"] > 0, trips["tip_amount"] / trips["fare_amount"], 0.0), index=trips.index)
+
+3. examples/taxi/features.py:40  PDD002 `trips.apply(..., axis=1)`
+   before    6.26 s  (timed once during your run)
+   after     173 ms  (median of 6)   36x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["long_trip"] = pd.Series(np.where(trips["minutes"] > 30, "long", "short"), index=trips.index)
+
+4. examples/taxi/features.py:44  PDD001 `trips.iterrows()` loop
+   before   31.80 s  (timed once during your run)
+   after     235 ms  (median of 5)   135x faster
+   result identical  (verified on this data)
+   rewrite:
+       card_revenue += (trips["fare_amount"].astype("object") + trips["tip_amount"].astype("object"))[trips["payment_type"].astype("object") == 1].sum()
+   (the plainest rewrite was equal within rtol=1e-09 (largest relative difference 4.1e-14), and different scalar types (float vs numpy.float64); this one is row dtype like iterrows)
+
+5. examples/taxi/features.py:49  PDD004 element-wise `.apply`/`.map`
+   before    1.15 s  (timed once during your run)
+   after     7.0 ms  (median of 25)   165x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["hour"] = trips["tpep_pickup_datetime"].dt.hour.astype("int64")
+   (the plainest rewrite was different: dtype differs: int64 vs int32 (in column 'hour'); this one is plain, result dtype "int64")
+
+5 of 5 rewrites verified identical and faster.
+
+Memory (PDD008): text columns that would be much smaller as `category`
+  trips['long_trip']: 2 distinct values in 2,964,624 rows; 38.3 MB -> 3.0 MB (13x smaller, measured)
+  A suggestion only: category changes some behaviour (sorting follows category order, groupby lists unused categories unless observed=True).
+rewrote examples/taxi/features.py
+
+$ time python examples/taxi/features.py yellow_tripdata_2024-01.parquet    # same output, byte for byte
+real 1.64

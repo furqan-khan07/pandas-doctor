@@ -1,0 +1,24 @@
+# pandas-doctor
+
+> pandas-doctor finds slow pandas code (iterrows loops, row-wise apply, concat in a loop, cell-by-cell writes, groupby-apply aggregates), rewrites it, and checks on the user's own data that the rewrite gives an identical result before suggesting it. Every speedup it reports is measured. Install with `pip install pandas-doctor`; Python 3.11+, pandas 2.2+.
+
+Use it when someone's pandas code is slow, or to check that a pandas rewrite (including one an AI assistant wrote) gives the same result as the original. "Identical" means same type, dtype, index, names, NaN positions and exact values; a rewrite with equal values but numpy-vs-python scalar types is reported as such.
+
+## Commands
+
+- `pandas-doctor run script.py [args]`: runs the script, verifies each rewrite on that run's data, times it. `--diff` prints verified rewrites as a patch, `--fix` applies them.
+- `pandas-doctor check PATH`: static check of `.py` files and notebooks for CI and pre-commit, with `--fix`, `--diff` and `--format json`.
+- `pandas-doctor verify`: compare your own rewrite against the original on data.
+- `%load_ext pandas_doctor` then `%%doctor` in Jupyter.
+- `pandas-doctor mcp`: MCP server (stdio) with tools `check_code`, `verify_rewrite`, `list_rules`. Needs `pandas-doctor[mcp]`; run with `uvx --from "pandas-doctor[mcp]" pandas-doctor mcp`. Registry name: `io.github.furqan-khan07/pandas-doctor`.
+
+## Docs
+
+- [README](https://github.com/furqan-khan07/pandas-doctor/blob/main/README.md): what it does, what "identical" means, the rules, CI, limits
+- [Rules and measured speedups](https://github.com/furqan-khan07/pandas-doctor#what-it-looks-for)
+- [Changelog](https://github.com/furqan-khan07/pandas-doctor/blob/main/CHANGELOG.md)
+
+## Optional
+
+- [PyPI](https://pypi.org/project/pandas-doctor/)
+- [Real-data example: NYC taxi trips](https://github.com/furqan-khan07/pandas-doctor/blob/main/examples/taxi/features.py)

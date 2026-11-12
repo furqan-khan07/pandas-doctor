@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.furqan-khan07/pandas-doctor",
+  "title": "pandas-doctor",
+  "description": "Finds slow pandas code, checks rewrites give identical results on your data, measures speedups.",
+  "repository": {
+    "url": "https://github.com/furqan-khan07/pandas-doctor",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "pandas-doctor",
+      "version": "0.1.1",
+      "runtimeHint": "uvx",
+      "runtimeArguments": [
+        { "type": "named", "name": "--from", "value": "pandas-doctor[mcp]==0.1.1" }
+      ],
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "positional", "value": "mcp" }
+      ]
+    }
+  ]
+}

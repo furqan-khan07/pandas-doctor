@@ -1,0 +1,34 @@
+$ time python examples/taxi/features.py yellow_tripdata_2024-01.parquet
+real 96.55
+
+$ pandas-doctor run --fix examples/taxi/features.py yellow_tripdata_2024-01.parquet
+pandas-doctor run: examples/taxi/features.py   (pandas 3.1.0, numpy 2.5.4, Python 3.13.5)
+
+1. examples/taxi/features.py:31  PDD001 `trips.iterrows()` loop
+   before   47.72 s  (timed once during your run)
+   after     2.6 ms  (median of 25)   18,346x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["fare_per_mile"] = trips["fare_amount"] / (trips["trip_distance"] + 0.1)
+
+2. examples/taxi/features.py:35  PDD002 `trips.apply(..., axis=1)`
+   before    9.44 s  (timed once during your run)
+   after     4.6 ms  (median of 25)   2,057x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["tip_share"] = pd.Series(np.where(trips["fare_amount"] > 0, trips["tip_amount"] / trips["fare_amount"], 0.0), index=trips.index)
+
+3. examples/taxi/features.py:40  PDD002 `trips.apply(..., axis=1)`
+   before    6.26 s  (timed once during your run)
+   after     173 ms  (median of 6)   36x faster
+   result identical  (verified on this data)
+   rewrite:
+       trips["long_trip"] = pd.Series(np.where(trips["minutes"] > 30, "long", "short"), index=trips.index)
+
+   ... 2 more
+
+5 of 5 rewrites verified identical and faster.
+rewrote examples/taxi/features.py
+
+$ time python examples/taxi/features.py yellow_tripdata_2024-01.parquet    # same output, byte for byte
+real 1.64

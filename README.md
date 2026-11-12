@@ -2,9 +2,11 @@
 
 pandas-doctor finds the slow pandas lines in your code, rewrites them, and checks on your own data that the result is exactly the same. Then it tells you how much faster the rewrite was, measured, not guessed.
 
-![pandas-doctor run on a 1M-row feature engineering script](https://raw.githubusercontent.com/furqan-khan07/pandas-doctor/main/docs/demo.gif)
+![pandas-doctor run on a month of real NYC taxi trips](https://raw.githubusercontent.com/furqan-khan07/pandas-doctor/main/docs/demo.gif)
 
-That's a real run: [`examples/hero/features.py`](examples/hero/features.py), 1 million synthetic taxi trips with the kind of loops a lot of notebooks have. The script took **27.9 s**. pandas-doctor checked 5 rewrites on the script's own data, all identical and faster. After `--fix` the whole script runs in **1.01 s** and prints exactly the same output. Full report in [`docs/hero-run-full.txt`](docs/hero-run-full.txt).
+That's a real run on real data: [`examples/taxi/features.py`](examples/taxi/features.py) on January 2024 of the [NYC TLC yellow taxi trips](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page) (2.96 million rows), with the kind of loops a lot of notebooks have. The script took **96.6 s** (M4 Pro, pandas 3.1.0 with pyarrow). pandas-doctor checked 5 rewrites on the script's own data, all identical and faster. After `--fix` the whole script runs in **1.64 s** and prints exactly the same output. Full report in [`docs/taxi-run-full.txt`](docs/taxi-run-full.txt).
+
+No download needed for [`examples/hero/features.py`](examples/hero/features.py), the same script on 1M seeded synthetic trips: 27.9 s before, 1.01 s after ([report](docs/hero-run-full.txt)).
 
 ## Try it
 
@@ -12,6 +14,8 @@ That's a real run: [`examples/hero/features.py`](examples/hero/features.py), 1 m
 pip install pandas-doctor
 pandas-doctor run your_script.py
 ```
+
+Or try it in your browser first, nothing to install: [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/furqan-khan07/pandas-doctor/blob/main/examples/try_it.ipynb)
 
 `run` executes your script normally. Wherever it spots a slow pattern, it copies that code's inputs, lets your code run as usual, then runs the rewrite on the copies and compares the outputs. `--diff` shows the verified rewrites as a patch, and `--fix` writes them into the file.
 
@@ -129,7 +133,30 @@ The comment needs `permissions: pull-requests: write`. `check --format json` wor
 
 ## AI assistants
 
-`pandas-doctor mcp` serves three tools over MCP: `check_code`, `verify_rewrite` and `list_rules`. Install it with `pip install "pandas-doctor[mcp]"`. For Claude Code there's a plugin with a skill that tells the assistant to verify before claiming a speedup:
+`pandas-doctor mcp` serves three tools over MCP: `check_code`, `verify_rewrite` and `list_rules`. Install it with `pip install "pandas-doctor[mcp]"`, or let `uvx` fetch it. In Claude Code:
+
+```bash
+claude mcp add pandas-doctor -- uvx --from "pandas-doctor[mcp]" pandas-doctor mcp
+```
+
+In Cursor, Claude Desktop or any other client that takes an `mcpServers` config:
+
+```json
+{
+  "mcpServers": {
+    "pandas-doctor": {
+      "command": "uvx",
+      "args": ["--from", "pandas-doctor[mcp]", "pandas-doctor", "mcp"]
+    }
+  }
+}
+```
+
+It's also in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.furqan-khan07/pandas-doctor`.
+
+<!-- mcp-name: io.github.furqan-khan07/pandas-doctor -->
+
+For Claude Code there's also a plugin with a skill that tells the assistant to verify before claiming a speedup:
 
 ```
 /plugin marketplace add furqan-khan07/pandas-doctor

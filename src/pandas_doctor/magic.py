@@ -51,20 +51,19 @@ def register(ipython: Any) -> None:
             strict_types=args.strict_types,
             budget=args.budget,
         )
-        write_report(
-            outcome.doctor,
-            "cell",
-            cell.splitlines(),
-            stream=sys.stdout,
-            hint="Use `%%doctor --rewrite` to get the verified rewrite as a new cell.",
-        )
+        new_source, skipped = outcome.rewritten() if args.rewrite else (cell, [])
+        if not args.rewrite:
+            hint = "Use `%%doctor --rewrite` to get the verified rewrite as a new cell."
+        elif new_source != cell:
+            hint = "The verified rewrite is in a new cell below."
+        else:
+            hint = ""
+        write_report(outcome.doctor, "cell", cell.splitlines(), stream=sys.stdout, hint=hint)
         write_memory(outcome.memory, stream=sys.stdout)
-        if args.rewrite:
-            new_source, skipped = outcome.rewritten()
-            for note in skipped:
-                print(f"not rewritten: {note}")
-            if new_source != cell:
-                ipython.set_next_input(new_source, replace=False)
+        for note in skipped:
+            print(f"not rewritten: {note}")
+        if new_source != cell:
+            ipython.set_next_input(new_source, replace=False)
         if outcome.error is not None:
             raise outcome.error
 

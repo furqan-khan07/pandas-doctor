@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 (2026-11-12)
+
+- Listed in the MCP Registry as `io.github.furqan-khan07/pandas-doctor` (`server.json`), with setup snippets for
+  Claude Code, Cursor and other MCP clients in the README.
+- A real-data example: `examples/taxi/features.py` on a month of NYC taxi trips.
+- A Colab notebook to try it in the browser (`examples/try_it.ipynb`).
+- `%%doctor --rewrite` no longer tells you to use `--rewrite`; it says the rewrite is in the new cell.
+- `llms.txt` for AI tools that read it.
+
 ## 0.1.0 (2026-11-12)
 
 First release.

@@ -28,10 +28,14 @@ def test_cell_runs_in_notebook_namespace(ip, capsys: pytest.CaptureFixture[str])
     assert not [k for k in ip.user_ns if k.startswith("__pdd")]
 
 
-def test_rewrite_flag_offers_new_cell(ip, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+def test_rewrite_flag_offers_new_cell(
+    ip, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:  # type: ignore[no-untyped-def]
     offered: list[str] = []
     monkeypatch.setattr(ip, "set_next_input", lambda text, replace=False: offered.append(text))
     ip.run_cell(
         "%%doctor --rewrite --budget 0.1\nfor i, r in df.iterrows():\n    df.at[i, 'd'] = r['a'] * 2"
     )
     assert offered and 'df["d"] = df["a"] * 2' in offered[0].replace("'", '"')
+    out = capsys.readouterr().out
+    assert "in a new cell below" in out and "Use `%%doctor --rewrite`" not in out
