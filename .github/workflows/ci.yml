@@ -19,8 +19,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --python 3.13
       - run: uv run ruff check src tests benchmarks docs
       - run: uv run ruff format --check src tests benchmarks docs
@@ -37,8 +37,8 @@ jobs:
           - { python: "3.11", pandas: "2.2.3" }
           - { python: "3.13", pandas: "3.1.0" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --python ${{ matrix.python }}
       - run: uv pip install "pandas==${{ matrix.pandas }}"
       - run: uv run --no-sync python -c "import pandas, sys; print(sys.version, pandas.__version__)"
@@ -48,7 +48,7 @@ jobs:
     # the composite action, run against this repo's examples (summary only, no PR comment)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: doctor
         uses: ./
         with:
@@ -66,8 +66,8 @@ jobs:
         python: ["3.11", "3.12", "3.13"]
         pandas: ["2.2.3", "2.3.3", "3.0.6", "3.1.0"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --python ${{ matrix.python }}
       - run: uv pip install "pandas==${{ matrix.pandas }}"
       - run: uv run --no-sync pytest
