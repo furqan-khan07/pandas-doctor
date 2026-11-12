@@ -156,7 +156,7 @@ It's also in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io
 
 <!-- mcp-name: io.github.furqan-khan07/pandas-doctor -->
 
-For Claude Code there's also a plugin with a skill that tells the assistant to verify before claiming a speedup:
+For Claude Code there's also a plugin with a skill that tells the assistant to verify before claiming a speedup (it uses the CLI through `uvx`, or the MCP server above if you added it):
 
 ```
 /plugin marketplace add furqan-khan07/pandas-doctor

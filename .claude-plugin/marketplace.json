@@ -1,12 +1,14 @@
 {
   "name": "pandas-doctor",
   "description": "Find slow pandas code and prove rewrites on real data",
-  "owner": { "name": "Furqan Khan" },
+  "owner": {
+    "name": "Furqan Khan"
+  },
   "plugins": [
     {
       "name": "pandas-doctor",
       "source": "./claude-plugin",
-      "description": "A skill and MCP server so AI assistants verify their pandas rewrites (identical results, measured speedups) instead of guessing."
+      "description": "A skill so AI assistants verify their pandas rewrites (identical results, measured speedups) instead of guessing."
     }
   ]
 }
