@@ -112,6 +112,14 @@ Findings come at two levels:
 
 Before release, `check` was run over 8,419 files from 13 public repos (pandas, statsmodels, Kaggle courses, popular notebook collections) to hunt for false positives. The results and fixes are in [`docs/corpus.md`](docs/corpus.md). Slow lines it found in well-known teaching notebooks, re-measured, are in the [speedup gallery](docs/gallery.md).
 
+## Merged upstream
+
+Fixes found with pandas-doctor and merged into other projects:
+
+| project | change | measured |
+|---|---|---|
+| [pandapower](https://github.com/e2nIEE/pandapower/pull/3332) | `iterrows` + per-row `.loc` in the `different_voltage_levels_connected` diagnostic replaced with one vectorised comparison | 2.28 s → 0.9 ms for that check on a 13,797-line grid (case9241pegase); a full `pandapower.diagnostic(net)` also runs power flows, so the whole call gets a few seconds faster, not thousands of times |
+
 ## In CI
 
 pre-commit:
