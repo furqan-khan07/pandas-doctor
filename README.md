@@ -119,6 +119,7 @@ Fixes found with pandas-doctor and merged into other projects:
 | project | change | measured |
 |---|---|---|
 | [pandapower](https://github.com/e2nIEE/pandapower/pull/3332) | `iterrows` + per-row `.loc` in the `different_voltage_levels_connected` diagnostic replaced with one vectorised comparison | 2.28 s → 0.9 ms for that check on a 13,797-line grid (case9241pegase); a full `pandapower.diagnostic(net)` also runs power flows, so the whole call gets a few seconds faster, not thousands of times |
+| [pandapower](https://github.com/e2nIEE/pandapower/pull/3335) | `invalid_values` diagnostic re-ran `iterrows()` once per checked column (up to 27 times per table); now builds the rows once per table | 1.77 s → 0.68 s for that check on case9241pegase; the full diagnostic went from 4.1 s to 3.1 s |
 
 ## In CI
 
